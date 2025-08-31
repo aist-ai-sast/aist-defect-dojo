@@ -1442,6 +1442,7 @@ class TestSerializer(serializers.ModelSerializer):
     finding_groups = FindingGroupSerializer(
         source="finding_group_set", many=True, read_only=True,
     )
+    deduplication_complete = serializers.BooleanField(read_only=True)
 
     class Meta:
         model = Test
@@ -2317,7 +2318,7 @@ class CommonImportScanSerializer(serializers.Serializer):
         self,
         data: dict,
         context: dict,
-    ) -> None:
+    ):
         """
         Process the scan with all of the supplied data fully massaged
         into the format we are expecting
@@ -2328,7 +2329,7 @@ class CommonImportScanSerializer(serializers.Serializer):
             logger.debug(f"process_scan called with context: {context}")
             start_time = time.perf_counter()
             importer = self.get_importer(**context)
-            context["test"], _, _, _, _, _, _ = importer.process_scan(
+            context["test"], _, _, _, _, _, test_import = importer.process_scan(
                 context.pop("scan", None),
             )
             # Update the response body with some new data
@@ -2342,6 +2343,7 @@ class CommonImportScanSerializer(serializers.Serializer):
             duration = time.perf_counter() - start_time
             LargeScanSizeProductAnnouncement(response_data=data, duration=duration)
             ScanTypeProductAnnouncement(response_data=data, scan_type=context.get("scan_type"))
+            return test_import
         # convert to exception otherwise django rest framework will swallow them as 400 error
         # exceptions are already logged in the importer
         except SyntaxError as se:
@@ -2509,7 +2511,7 @@ class ImportScanSerializer(CommonImportScanSerializer):
         # set the jira option again as it was overridden
         context["push_to_jira"] = push_to_jira
         # Import the scan with all of the supplied data
-        self.process_scan(data, context)
+        return self.process_scan(data, context)
 
 
 class ReImportScanSerializer(CommonImportScanSerializer):
@@ -2594,7 +2596,7 @@ class ReImportScanSerializer(CommonImportScanSerializer):
         auto_create_manager: AutoCreateContextManager,
         data: dict,
         context: dict,
-    ) -> None:
+    ):
         """
         Process the scan with all of the supplied data fully massaged
         into the format we are expecting
@@ -2642,6 +2644,7 @@ class ReImportScanSerializer(CommonImportScanSerializer):
             duration = time.perf_counter() - start_time
             LargeScanSizeProductAnnouncement(response_data=data, duration=duration)
             ScanTypeProductAnnouncement(response_data=data, scan_type=context.get("scan_type"))
+            return test_import
         # convert to exception otherwise django rest framework will swallow them as 400 error
         # exceptions are already logged in the importer
         except SyntaxError as se:
@@ -2660,7 +2663,7 @@ class ReImportScanSerializer(CommonImportScanSerializer):
         auto_create_manager = AutoCreateContextManager()
         self.process_auto_create_create_context(auto_create_manager, context)
         # Import the scan with all of the supplied data
-        self.process_scan(auto_create_manager, data, context)
+        return self.process_scan(auto_create_manager, data, context)
 
 
 class EndpointMetaImporterSerializer(serializers.Serializer):

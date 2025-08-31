@@ -1,0 +1,41 @@
+{# AIST: Waiting for deduplication — overall & per-test progress (finding-level). #}
+{# This snippet expects: `pipeline` in context and URL name `dojo_aist:deduplication_progress`. #}
+
+<div class="card mb-3">
+  <div class="card-header">Deduplication progress (overall)</div>
+  <div class="card-body">
+    <div class="d-flex justify-content-between">
+      <div>
+        <span class="badge bg-info" id="overall-badge">0 / 0</span>
+        <small class="text-muted ms-2" id="overall-remaining">(remaining: 0)</small>
+      </div>
+      <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+    </div>
+    <div class="progress mt-3" style="height:18px;">
+      <div id="overall-bar" class="progress-bar" role="progressbar" style="width:0%;" aria-valuemin="0" aria-valuemax="100">0%</div>
+    </div>
+    <small class="text-muted d-block mt-2">
+      This reflects deduplication at the <em>finding</em> level across all tests.
+    </small>
+  </div>
+</div>
+
+<div class="card mb-3">
+  <div class="card-header">Per-test deduplication</div>
+  <div class="card-body p-0">
+    <div class="table-responsive">
+      <table class="table table-sm table-striped mb-0 align-middle">
+        <thead>
+          <tr>
+            <th style="width: 120px;">Test</th>
+            <th>Progress</th>
+            <th style="width: 160px;" class="text-end">Processed / Total</th>
+          </tr>
+        </thead>
+        <tbody id="tests-progress-body">
+          {# Filled by JS #}
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>

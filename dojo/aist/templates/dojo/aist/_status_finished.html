@@ -1,0 +1,160 @@
+{# dojo/aist/_status_finished.html #}
+{% load aist_extras %}
+
+<div class="alert alert-success d-flex align-items-center mb-4" role="alert">
+  <i class="fa fa-check-circle me-2" aria-hidden="true"></i>
+  <div><strong>Pipeline finished.</strong></div>
+</div>
+
+<div class="card shadow-sm mb-4">
+  <div class="card-body">
+
+    <form method="post" class="mb-4">
+      {% csrf_token %}
+      <button type="submit"
+              class="btn btn-outline-secondary btn-sm"
+              formaction="{% url 'dojo_aist:pipeline_set_status' pipeline.id %}">
+        <i class="fa fa-arrow-left" aria-hidden="true"></i>
+        Return to step <span class="fw-semibold">Push To AI</span>
+      </button>
+    </form>
+
+    <div class="aist-section">
+      <div class="fw-semibold fs-6 aist-subtitle">
+        <i class="fa fa-flask me-1"></i> Analyzers summary
+      </div>
+      {% with info=pipeline.analyzers_info %}
+        {% if info %}
+          <div class="row g-3">
+            <div class="col-auto">
+              <div class="text-muted small">Analyzers used</div>
+              <div class="fw-semibold">{{ info.total|default:0 }}</div>
+            </div>
+            <div class="col-auto">
+              <div class="text-muted small">Succeeded</div>
+              <div class="fw-semibold">{{ info.succeeded|default:0 }}</div>
+            </div>
+            <div class="col-auto">
+              <div class="text-muted small">Failed</div>
+              <div class="fw-semibold">{{ info.failed|default:0 }}</div>
+            </div>
+          </div>
+        {% else %}
+          <span class="text-muted">No analyzers recorded.</span>
+        {% endif %}
+      {% endwith %}
+    </div>
+
+
+    <div class="aist-section">
+      <div class="fw-semibold fs-6 aist-subtitle">
+        <i class="fa fa-clock me-1"></i> Duration
+      </div>
+      <div>
+          <span class="text-muted ms-2">
+          <span id="aist-duration" data-start="{{ pipeline.started|date:'c' }}"
+                data-end="{{ pipeline.updated|date:'c' }}" class="fw-semibold"></span>
+            <span id="aist-duration-human" class="text-muted ms-2"></span>
+        </span>
+      </div>
+    </div>
+
+
+    <div class="aist-section">
+      <div class="fw-semibold fs-6 mb-3">
+        <i class="fa fa-robot me-1"></i> AI responses history
+      </div>
+
+      {% if pipeline.ai_responses.all %}
+        <div class="accordion" id="aist-ai-responses">
+          {% for r in pipeline.ai_responses.all %}
+            <div class="accordion-item mb-2">
+              <h2 class="accordion-header" id="ai-head-{{ r.id }}">
+                <button class="accordion-button collapsed" type="button"
+                        data-bs-toggle="collapse" data-toggle="collapse"
+                        data-bs-target="#ai-body-{{ r.id }}" data-target="#ai-body-{{ r.id }}"
+                        aria-expanded="false" aria-controls="ai-body-{{ r.id }}">
+                  <span class="me-2 badge bg-secondary">{{ forloop.counter }}</span>
+                  <span class="me-3">{{ r.created|date:"Y-m-d H:i:s" }}</span>
+                  <small class="text-muted">(#{{ r.id }})</small>
+                </button>
+              </h2>
+
+              <div id="ai-body-{{ r.id }}" class="accordion-collapse collapse"
+                   aria-labelledby="ai-head-{{ r.id }}"
+                   data-bs-parent="#aist-ai-responses" data-parent="#aist-ai-responses">
+                <div class="accordion-body">
+
+                    <div class="aist-ai-toolbar mb-2">
+  <button type="button"
+          class="btn btn-sm btn-outline-secondary aist-json-copy-btn"
+          data-target="{{ r.id }}">
+    <i class="fa fa-clipboard me-1"></i>Copy
+  </button>
+  <form method="post"
+        action="{% url 'dojo_aist:delete_ai_response' pipeline.id r.id %}"
+        onsubmit="return confirm('Delete this AI response?');"
+        style="display:inline-block; margin:0;">
+    {% csrf_token %}
+    <button class="btn btn-sm btn-outline-danger">
+      <i class="fa fa-trash me-1"></i>Delete
+    </button>
+  </form>
+</div>
+
+                  {# --- 1) JSON для Copy/подсветки --- #}
+{% with json_id="aist-json-raw-"|add:r.id %}
+  {{ r.payload|json_script:json_id }}
+{% endwith %}
+
+{# --- 2) Серверный pretty-print, размер = по контенту --- #}
+<pre id="aist-json-view-{{ r.id }}" class="aist-json-pre">{{ r.payload|to_pretty_json }}</pre>
+
+                  <script>
+                    (function(){
+                      var v = document.getElementById('aist-json-view-{{ r.id }}');
+                      if(!v) return;
+                      if(typeof window.jsonSyntaxHighlight === 'function'){
+                        try { v.innerHTML = window.jsonSyntaxHighlight(v.textContent); } catch(e){}
+                      }
+
+                      var btn = document.querySelector('.aist-json-copy-btn[data-target="{{ r.id }}"]');
+                      if(btn && !btn.dataset.wired){
+                        btn.addEventListener('click', async function(){
+                          try{
+                            var raw = document.getElementById('aist-json-raw-{{ r.id }}');
+                            var txt = (raw && raw.textContent || '').trim();
+                            if(!txt){ txt = v.textContent; }
+                            await navigator.clipboard.writeText(txt);
+                            this.innerHTML = '<i class="fa fa-check me-1"></i>Copied';
+                            setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard me-1"></i>Copy', 1500);
+                          }catch(_){
+                            this.innerHTML = '<i class="fa fa-exclamation-triangle me-1"></i>Error';
+                            setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard me-1"></i>Copy', 1500);
+                          }
+                        });
+                        btn.dataset.wired = '1';
+                      }
+                    })();
+                  </script>
+
+                </div>
+              </div>
+            </div>
+          {% empty %}
+            <span class="text-muted">No AI responses yet.</span>
+          {% endfor %}
+        </div>
+      {% else %}
+        <span class="text-muted">No AI responses yet.</span>
+      {% endif %}
+    </div>
+
+  </div>
+</div>
+
+<style>
+  .aist-ai-toolbar{
+    display:flex; gap:.5rem; align-items:center; justify-content:flex-end; flex-wrap:wrap;
+  }
+</style>

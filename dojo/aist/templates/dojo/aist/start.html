@@ -1,0 +1,831 @@
+{% extends 'base.html' %}
+{% load i18n %}
+{% block content %}
+    <div class="container mt-3 pb-5">
+        <div class="row g-4">
+
+            <!-- Left panel: Start form -->
+            <div class="col-12 col-lg-8">
+                <h3 class="mb-3">Run SAST Pipeline</h3>
+                <div class="card shadow-sm mb-5">
+                    <div class="card-body pb-4">
+                        <form method="post">
+                            {% csrf_token %}
+                            {{ form.selection_signature }}
+
+                            {# Project select #}
+                            <div class="mb-3 row">
+                                <label class="col-sm-3 col-form-label">{{ form.project.label }}</label>
+                                <div class="col-sm-9">
+                                    {{ form.project }}
+                                    {% if form.project.help_text %}
+                                        <small class="form-text text-muted small">{{ form.project.help_text }}</small>
+                                    {% endif %}
+                                </div>
+                            </div>
+                            <div class="mb-3 row align-items-start">
+                                <label class="col-sm-3 col-form-label">{{ form.project_version.label }}</label>
+                                <div class="col-sm-9 d-flex gap-2">
+                                    <div class="flex-grow-1">
+                                        {{ form.project_version }}
+                                    </div>
+                                    <button type="button"
+                                            class="btn btn-outline-primary"
+                                            id="btn-open-create-version"
+                                            title="Create version for selected project"
+                                            disabled>
+                                        Create version
+                                    </button>
+                                </div>
+                            </div>
+
+                            {# Rebuild images (checkbox) — aligned like other fields #}
+                            <div class="mb-3 row">
+                                <label class="col-sm-3 col-form-label">{{ form.ask_push_to_ai.label }}</label>
+                                <div class="col-sm-9">
+                                    <div class="form-check">
+                                        {{ form.ask_push_to_ai }}
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="mb-3 row">
+                                <label class="col-sm-3 col-form-label">{{ form.rebuild_images.label }}</label>
+                                <div class="col-sm-9">
+                                    <div class="form-check">
+                                        {{ form.rebuild_images }}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {# Log level #}
+                            <div class="mb-3 row">
+                                <label class="col-sm-3 col-form-label">{{ form.log_level.label }}</label>
+                                <div class="col-sm-9">
+                                    {{ form.log_level }}
+                                </div>
+                            </div>
+
+                            {# Languages as checkboxes #}
+                            <div class="mb-3 row">
+                                <label class="col-sm-3 col-form-label">{{ form.languages.label }}</label>
+                                <div class="col-sm-9" id="languages-group">
+                                    <div class="row">
+                                        {% for checkbox in form.languages %}
+                                            <div class="col-sm-6 col-lg-4">
+                                                <div class="form-check mb-2">
+                                                    {{ checkbox.tag }}
+                                                    <label class="form-check-label">{{ checkbox.choice_label }}</label>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                    <small class="form-text text-muted small mt-1">
+                                        Project-required languages are preselected and disabled.
+                                    </small>
+                                </div>
+                            </div>
+
+                            {# Analyzers as checkboxes #}
+                            <div class="mb-3 row">
+                                <label class="col-sm-3 col-form-label">{{ form.analyzers.label }}</label>
+                                <div class="col-sm-9">
+                                    <div class="row">
+                                        {% for checkbox in form.analyzers %}
+                                            <div class="col-sm-6 col-lg-4">
+                                                <div class="form-check mb-2">
+                                                    {{ checkbox.tag }}
+                                                    <label class="form-check-label">{{ checkbox.choice_label }}</label>
+                                                </div>
+                                            </div>
+                                        {% endfor %}
+                                    </div>
+                                </div>
+                            </div>
+
+                            {# Time class #}
+                            <div class="mb-3 row">
+                                <label class="col-sm-3 col-form-label">{{ form.time_class_level.label }}</label>
+                                <div class="col-sm-9">
+                                    {{ form.time_class_level }}
+                                </div>
+                            </div>
+
+                            <div class="text-end mt-3">
+                                <button type="submit" class="btn btn-primary">Start</button>
+                            </div>
+                        </form>
+                        <style>
+                            /* фиксируем заголовок и крестик в одной линии */
+                            #modalCreateVersion .modal-header {
+                                display: flex;
+                                align-items: center;
+                                justify-content: space-between;
+                                padding: 10px 15px;
+                            }
+
+                            /* заголовок остаётся слева */
+                            #modalCreateVersion .modal-title {
+                                flex: 1;
+                                text-align: left;
+                                font-weight: 600;
+                                margin: 0;
+                            }
+
+                            /* крестик справа, без float и без лишних отступов */
+                            #modalCreateVersion .close {
+                                float: none;
+                                margin-left: auto;
+                                line-height: 1;
+                                opacity: .6;
+                            }
+
+                            #modalCreateVersion .close:hover {
+                                opacity: 1;
+                            }
+                        </style>
+                        <!-- Modal for creating new project version -->
+                        <div class="modal fade" id="modalCreateVersion" tabindex="-1" aria-hidden="true">
+                            <div class="modal-dialog modal-lg modal-dialog-centered">
+                                <div class="modal-content">
+                                    <div class="modal-header">
+                                        <h5 class="modal-title">Create Project Version</h5>
+                                        <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+                                            <span aria-hidden="true">&times;</span>
+                                        </button>
+                                    </div>
+                                    <div class="modal-body" id="create-version-body">
+                                        <div class="text-muted">Select a project first…</div>
+                                    </div>
+                                    <div class="modal-footer">
+                                        <button type="button" class="btn btn-secondary" data-dismiss="modal">Close
+                                        </button>
+                                        <button type="button" class="btn btn-primary" id="btn-submit-create-version">
+                                            Create
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                {# hard spacer to guarantee bottom gap across themes #}
+                <div class="mb-5"></div>
+                <div style="height:48px"></div>
+            </div>
+
+            <!-- Right column: launch history -->
+            <div class="col-12 col-lg-4">
+                <div class="card shadow-sm sticky-lg-top" style="top: 76px;">
+                    <div class="card-header d-flex align-items-center justify-content-between py-2 mb-2"
+                         style="margin-bottom:.5rem!important">
+                        <span class="fw-semibold">Recent pipelines</span>
+                        <span class="badge bg-secondary">{{ history_page.paginator.count }}</span>
+                    </div>
+
+                    <!-- Filter/search (GET) -->
+                    <form method="get" class="mt-2 px-3 pb-0">
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">Project</label>
+                            <select class="form-select form-select-sm" name="project" onchange="this.form.submit()">
+                                <option value="">All projects</option>
+                                {% for p in form.fields.project.queryset %}
+                                    <option value="{{ p.id }}"
+                                            {% if selected_project|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>
+                                        {{ p.product.name }}
+                                    </option>
+                                {% endfor %}
+                            </select>
+                        </div>
+                        <div class="mb-2">
+                            <label class="form-label small mb-1">Search</label>
+                            <div class="input-group input-group-sm">
+                                <input type="text" class="form-control" name="q" value="{{ search_query }}"
+                                       placeholder="ID or product name">
+                                <button class="btn btn-outline-secondary btn-sm" type="submit">Apply</button>
+                                <a class="btn btn-outline-light btn-sm border"
+                                   href="{% url 'dojo_aist:start_pipeline' %}">Reset</a>
+                            </div>
+                        </div>
+                        <input type="hidden" name="page_size" value="8">
+                    </form>
+
+                    {% if history_items %}
+                        <div class="list-group list-group-flush mt-2">
+                            {% for run in history_items %}
+                                <a href="{% url 'dojo_aist:pipeline_detail' id=run.id %}"
+                                   class="list-group-item list-group-item-action">
+                                    <div class="d-flex justify-content-between">
+                                        <div class="me-2">
+                                            <div class="fw-semibold text-truncate"
+                                                 title="{{ run.project_name }}">{{ run.project_name }}</div>
+                                            <div class="text-muted small">#{{ run.id }}
+                                                · {{ run.updated|date:"Y-m-d H:i" }}</div>
+                                        </div>
+                                        <div class="text-end">
+                                            <span class="badge bg-success">{{ run.status }}</span>
+                                            {% if run.duration %}
+                                                <div class="small mt-1">⏱ {{ run.duration }}</div>
+                                            {% endif %}
+                                        </div>
+                                    </div>
+                                </a>
+                            {% endfor %}
+                        </div>
+
+                        <div class="card-footer d-flex align-items-center justify-content-between">
+                            <div class="btn-group">
+                                {% if history_page.has_previous %}
+                                    <a class="btn btn-sm btn-outline-secondary"
+                                       href="?{{ history_qs }}&page={{ history_page.previous_page_number }}">‹ Prev</a>
+                                {% else %}
+                                    <button class="btn btn-sm btn-outline-secondary" disabled>‹ Prev</button>
+                                {% endif %}
+                                {% if history_page.has_next %}
+                                    <a class="btn btn-sm btn-outline-secondary"
+                                       href="?{{ history_qs }}&page={{ history_page.next_page_number }}">Next ›</a>
+                                {% else %}
+                                    <button class="btn btn-sm btn-outline-secondary" disabled>Next ›</button>
+                                {% endif %}
+                            </div>
+                            <div class="small text-muted">Page {{ history_page.number }}
+                                / {{ history_page.paginator.num_pages }}</div>
+                            <a class="btn btn-sm btn-outline-primary"
+                               href="{% url 'dojo_aist:pipeline_list' %}?{{ history_qs }}">View all</a>
+                        </div>
+                    {% else %}
+                        <div class="card-body text-muted">No finished runs yet.</div>
+                    {% endif %}
+                </div>
+            </div>
+
+
+        </div>
+    </div>
+
+    <!-- Bootstrap select init (if present) -->
+    <script>
+        (function () {
+            "use strict";
+
+            /* run once */
+            if (window.__AIST_BOOTED__) return;
+            window.__AIST_BOOTED__ = true;
+
+            /* helpers */
+            function getCookie(name) {
+                var value = "; " + document.cookie;
+                var parts = value.split("; " + name + "=");
+                if (parts.length === 2) return decodeURIComponent(parts.pop().split(";").shift());
+                return null;
+            }
+
+            function getCSRFToken(form) {
+                return getCookie("csrftoken") ||
+                    (form.querySelector('input[name="csrfmiddlewaretoken"]') ? form.querySelector('input[name="csrfmiddlewaretoken"]').value : "");
+            }
+
+            function normalizeVersions(raw) {
+                if (!raw) return [];
+                if (Object.prototype.toString.call(raw) === "[object Array]") {
+                    var out = [];
+                    for (var i = 0; i < raw.length; i++) {
+                        var v = raw[i];
+                        if (v && typeof v === "object") {
+                            var id = (v.id != null ? String(v.id) : (v.value != null ? String(v.value) : (v.slug != null ? String(v.slug) : String(v))));
+                            var lbl = (v.label != null ? String(v.label) : (v.name != null ? String(v.name) : (v.id != null ? String(v.id) : String(v))));
+                            out.push({id: id, label: lbl});
+                        } else {
+                            out.push({id: String(v), label: String(v)});
+                        }
+                    }
+                    return out;
+                }
+                if (typeof raw === "object") {
+                    var out2 = [];
+                    for (var k in raw) if (Object.prototype.hasOwnProperty.call(raw, k)) {
+                        var vv = raw[k];
+                        if (vv && typeof vv === "object") out2.push({
+                            id: String(vv.id != null ? vv.id : k),
+                            label: String(vv.label != null ? vv.label : (vv.name != null ? vv.name : k))
+                        });
+                        else out2.push({id: String(k), label: String(vv)});
+                    }
+                    return out2;
+                }
+                return [{id: String(raw), label: String(raw)}];
+            }
+
+            function prettifyLabel(label, projectId) {
+                var pid = String(projectId || "");
+                var s = String(label || "");
+                var prefix = pid + ":";
+                if (pid && s.indexOf(prefix) === 0) return s.slice(prefix.length);
+                return s;
+            }
+
+            function hasSelectpicker() {
+                return !!(window.jQuery && window.jQuery.fn && window.jQuery.fn.selectpicker);
+            }
+
+            function isSelectpickerApplied(el) {
+                if (!hasSelectpicker() || !el) return false;
+                var $ = window.jQuery;
+                return !!($(el).data("selectpicker")) || ($(el).parent().hasClass("bootstrap-select"));
+            }
+
+            /* main */
+            function main() {
+                var form = document.querySelector('form[method="post"]');
+                if (!form) return;
+
+                var selProject = form.querySelector('select[name="{{ form.project.html_name }}"]');
+                var selTime = form.querySelector('select[name="{{ form.time_class_level.html_name }}"]');
+                var selVersion = form.querySelector('select[name="{{ form.project_version.html_name }}"]');
+                var langsWrap = document.getElementById("languages-group");
+
+                var DEFAULT_EMPTY_LABEL = "Use default (latest on default branch)";
+                var metaUrlTemplate = "{% url 'dojo_aist:project_meta' pk=0 %}";
+                var defaultsUrl = "{% url 'dojo_aist:default_analyzers' %}";
+                var createUrlTpl = "{% url 'dojo_aist:project_version_create' project_id=0 %}";
+
+                function languageCheckboxes() {
+                    return langsWrap ? langsWrap.querySelectorAll('input[name="{{ form.languages.html_name }}"]') : [];
+                }
+
+                function setLanguages(supported) {
+                    var fixed = {};
+                    if (supported && supported.length) for (var i = 0; i < supported.length; i++) fixed[supported[i]] = true;
+                    var boxes = languageCheckboxes();
+                    for (var j = 0; j < boxes.length; j++) {
+                        var cb = boxes[j];
+                        var isFixed = !!fixed[cb.value];
+                        cb.classList.add("form-check-input");
+                        var wrap = cb.closest ? cb.closest(".form-check") : null;
+                        var lbl = wrap ? wrap.querySelector(".form-check-label") : null;
+                        if (isFixed) {
+                            cb.checked = true;
+                            cb.disabled = true;
+                            if (lbl) lbl.classList.add("text-muted");
+                        } else {
+                            cb.disabled = false;
+                            cb.checked = false;
+                            if (lbl) lbl.classList.remove("text-muted");
+                        }
+                    }
+                }
+
+                function rebuildProjectVersionSelect(versionsRaw, projectId) {
+                    if (!selVersion) return;
+
+                    if (document.activeElement === selVersion) {
+                        try {
+                            document.activeElement.blur();
+                        } catch (e) {
+                        }
+                    }
+
+                    var list = normalizeVersions(versionsRaw);
+                    var usingPlugin = isSelectpickerApplied(selVersion);
+                    var $ = window.jQuery;
+
+                    if (usingPlugin) {
+                        try {
+                            $(selVersion).selectpicker("destroy");
+                        } catch (e) {
+                        }
+
+                        while (selVersion.options.length) selVersion.remove(0);
+                        selVersion.setAttribute("title", DEFAULT_EMPTY_LABEL);
+                        selVersion.add(new Option(DEFAULT_EMPTY_LABEL, ""));
+                        for (var i = 0; i < list.length; i++) {
+                            selVersion.add(new Option(prettifyLabel(list[i].label, projectId), list[i].id));
+                        }
+
+                        var disabled = (list.length === 0);
+                        selVersion.disabled = disabled;
+
+                        $(selVersion).selectpicker();
+                        $(selVersion)
+                            .prop("disabled", disabled)
+                            .selectpicker("render")
+                            .selectpicker("refresh")
+                            .selectpicker("val", "");
+
+                        var $wrap = $(selVersion).closest(".bootstrap-select");
+                        if ($wrap.length) {
+                            $wrap.toggleClass("disabled", disabled);
+                            var $btn = $wrap.find("button");
+                            if ($btn.length) {
+                                $btn.prop("disabled", disabled).blur();
+                            }
+                        }
+                    } else {
+                        selVersion.innerHTML = "";
+                        selVersion.add(new Option(DEFAULT_EMPTY_LABEL, ""));
+                        for (var k = 0; k < list.length; k++) {
+                            selVersion.add(new Option(prettifyLabel(list[k].label, projectId), list[k].id));
+                        }
+                        selVersion.disabled = (list.length === 0);
+                        setTimeout(function () {
+                            try {
+                                selVersion.blur();
+                            } catch (e) {
+                            }
+                        }, 0);
+                    }
+
+                    var fs = selVersion.closest ? selVersion.closest("fieldset") : null;
+                    if (fs && fs.hasAttribute("disabled")) fs.removeAttribute("disabled");
+                }
+
+                function fetchProjectMeta(projectId, done) {
+                    if (!projectId) {
+                        setLanguages([]);
+                        rebuildProjectVersionSelect([], projectId);
+                        if (done) done();
+                        return;
+                    }
+                    var url = metaUrlTemplate.replace("/0/", "/" + String(projectId) + "/");
+                    fetch(url, {credentials: "same-origin"})
+                        .then(function (r) {
+                            if (!r.ok) return r.text().then(function () {
+                                throw new Error("HTTP " + r.status);
+                            });
+                            return r.json();
+                        })
+                        .then(function (data) {
+                            setLanguages(data && data.supported_languages ? data.supported_languages : []);
+                            rebuildProjectVersionSelect(data && data.versions ? data.versions : [], projectId);
+                            if (done) done();
+                        })
+                        .catch(function () {
+                            setLanguages([]);
+                            rebuildProjectVersionSelect([], projectId);
+                            if (done) done();
+                        });
+                }
+
+                function collectAndRefreshAnalyzers() {
+                    if (!defaultsUrl) return Promise.resolve();
+                    var fd = new FormData();
+                    fd.append("project", selProject ? selProject.value : "");
+                    fd.append("time_class_level", selTime ? selTime.value : "");
+                    var boxes = languageCheckboxes();
+                    for (var i = 0; i < boxes.length; i++) if (boxes[i].checked) fd.append("languages", boxes[i].value);
+
+                    var csrf = getCSRFToken(form);
+
+                    return fetch(defaultsUrl, {
+                        method: "POST",
+                        body: fd,
+                        credentials: "same-origin",
+                        headers: { "X-CSRFToken": getCSRFToken(form) }
+                    })
+                        .then(function (r) { return r.json(); })
+                        .then(function (data) {
+                            var sig = form.querySelector('input[name="{{ form.selection_signature.html_name }}"]');
+                            if (sig && data && data.signature) sig.value = data.signature;
+
+                            var wanted = {};
+                            if (data && data.defaults && data.defaults.length) {
+                                for (var j = 0; j < data.defaults.length; j++) wanted[data.defaults[j]] = true;
+                            }
+                            var analyzerBoxes = form.querySelectorAll('input[name="{{ form.analyzers.html_name }}"]');
+                            for (var k = 0; k < analyzerBoxes.length; k++) {
+                                analyzerBoxes[k].checked = !!wanted[analyzerBoxes[k].value];
+                            }
+                        })
+                        .catch(function(){});
+                }
+
+                function onProjectChanged() {
+                    fetchProjectMeta(selProject ? selProject.value : "", function () {
+                        collectAndRefreshAnalyzers();
+                    });
+                }
+
+                if (selProject) {
+                    selProject.addEventListener("change", onProjectChanged);
+                    if (hasSelectpicker()) {
+                        try {
+                            window.jQuery(selProject).off("changed.bs.select.aist").on("changed.bs.select.aist", onProjectChanged);
+                        } catch (e) {
+                        }
+                    }
+                }
+                if (selTime) {
+                    selTime.addEventListener("change", collectAndRefreshAnalyzers);
+                    if (hasSelectpicker()) {
+                        try {
+                            window.jQuery(selTime).off("changed.bs.select.aist").on("changed.bs.select.aist", collectAndRefreshAnalyzers);
+                        } catch (e) {}
+                    }
+                }
+                var boxes = languageCheckboxes();
+                for (var q = 0; q < boxes.length; q++) boxes[q].addEventListener("change", collectAndRefreshAnalyzers);
+
+                if (selProject && selProject.value) {
+                    fetchProjectMeta(selProject.value, function () {
+                        collectAndRefreshAnalyzers();
+                    });
+                } else {
+                    setLanguages([]);
+                    rebuildProjectVersionSelect([], selProject ? selProject.value : "");
+                }
+
+                var btnOpenCreate = document.getElementById("btn-open-create-version");
+                var btnSubmitCreate = document.getElementById("btn-submit-create-version");
+                var modalEl = document.getElementById("modalCreateVersion");
+                var createBody = document.getElementById("create-version-body");
+                var bsModal = {
+                    show: function () {
+                        $('#modalCreateVersion').modal('show');
+                    },
+                    hide: function () {
+                        $('#modalCreateVersion').modal('hide');
+                    }
+                };
+
+                function updateCreateButtonState() {
+                    if (!btnOpenCreate) return;
+                    btnOpenCreate.disabled = !(selProject && selProject.value);
+                }
+
+                function hasSelectpicker() {
+                    return !!(window.jQuery && window.jQuery.fn && window.jQuery.fn.selectpicker);
+                }
+
+                function initProjectVersionForm(root) {
+                    var typeSel = root.querySelector('select[name="version_type"]');
+                    var grpText = root.querySelector('#grp_version_text');
+                    var grpFile = root.querySelector('#grp_version_file');
+                    var inpText = root.querySelector('input[name="version"]');
+                    var inpFile = root.querySelector('input[type="file"][name="source_archive"]');
+                    var desc = root.querySelector('textarea[name="description"]');
+                    var meta = root.querySelector('textarea[name="metadata"]');
+
+                    if (typeSel) {
+                        typeSel.classList.add('selectpicker');
+                        typeSel.setAttribute('data-container', 'body');
+                        typeSel.setAttribute('data-live-search', 'false');
+                        typeSel.style.width = '100%';
+                        if (hasSelectpicker()) {
+                            try { window.jQuery(typeSel).selectpicker('render'); } catch (e) {}
+                        }
+                    }
+                    if (inpText) inpText.classList.add('form-control');
+                    if (inpFile) inpFile.classList.add('form-control');
+                    if (desc) {
+                        desc.classList.add('form-control');
+                        desc.rows = desc.rows || 2;
+                    }
+                    if (meta) {
+                        meta.classList.add('form-control');
+                        meta.rows = meta.rows || 6;
+                    }
+
+                    function applyVisibility() {
+                        var t = typeSel ? String(typeSel.value || '') : 'GIT_HASH';
+                        var isFile = (t === 'FILE_HASH');
+
+                        if (grpFile) grpFile.style.display = isFile ? '' : 'none';
+
+                        if (inpText) inpText.required = !isFile;
+                        if (inpFile) inpFile.required = isFile;
+                    }
+
+                    // --- progress helpers for hashing ---
+                    function setFileProgress(visible, text) {
+                        var box = root.querySelector('#file-progress');
+                        var lbl = root.querySelector('#file-progress-label');
+                        if (box) box.style.display = visible ? '' : 'none';
+                        if (lbl && text) lbl.textContent = text;
+                    }
+
+                    async function computeSHA256(file, onProgress) {
+                        const chunkSize = 1024 * 1024 * 2; // 2MB
+                        const reader = file.stream().getReader();
+                        const chunksData = [];
+                        let loaded = 0;
+                        while (true) {
+                            const {done, value} = await reader.read();
+                            if (done) break;
+                            chunksData.push(value);
+                            loaded += value.byteLength;
+                            if (onProgress && file.size) {
+                                onProgress(Math.min(100, Math.floor(loaded * 100 / file.size)));
+                            }
+                        }
+                        const all = new Blob(chunksData);
+                        const buf = await all.arrayBuffer();
+                        const hash = await crypto.subtle.digest('SHA-256', buf);
+                        const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+                        return hex;
+                    }
+
+                    if (inpFile) {
+                        inpFile.addEventListener('change', async function () {
+                            if (!inpFile.files || !inpFile.files[0]) return;
+                            var t = typeSel ? String(typeSel.value || '') : 'GIT_HASH';
+                            var isFile = (t === 'FILE_HASH');
+                            if (!isFile) return;
+                            if (inpText && inpText.value.trim()) return;
+                            try {
+                                setFileProgress(true, 'Computing hash…');
+                                const hex = await computeSHA256(inpFile.files[0], function (pct) {
+                                    setFileProgress(true, 'Computing hash… ' + pct + '%');
+                                });
+                                if (inpText && !inpText.value.trim()) {
+                                    inpText.value = hex;
+                                }
+                                setFileProgress(false, '');
+                            } catch (e) {
+                                setFileProgress(true, 'Hash failed, will compute on server…');
+                                setTimeout(function(){ setFileProgress(false, ''); }, 1500);
+                            }
+                        });
+                    }
+
+                    if (typeSel) {
+                        typeSel.addEventListener('change', applyVisibility);
+                        applyVisibility();
+                    }
+                }
+
+
+                function loadCreateForm() {
+                    if (!selProject || !selProject.value) {
+                        createBody.innerHTML = '<div class="alert alert-warning">Select a project first.</div>';
+                        return;
+                    }
+                    var pid = selProject.value;
+                    var url = createUrlTpl.replace("/0/", "/" + pid + "/");
+                    createBody.innerHTML = '<div class="text-center text-muted py-3"><div class="spinner-border"></div> Loading…</div>';
+                    fetch(url, {credentials: "same-origin"})
+                        .then(r => r.text())
+                        .then(html => {
+                            createBody.innerHTML = html;
+                            initProjectVersionForm(createBody);
+                        })
+                        .catch(() => {
+                            createBody.innerHTML = '<div class="alert alert-danger">Failed to load form.</div>';
+                        });
+                }
+
+
+                function submitCreateForm() {
+                    if (!selProject || !selProject.value) return;
+                    var pid = selProject.value;
+                    var url = createUrlTpl.replace("/0/", "/" + pid + "/");
+                    var formEl = createBody.querySelector("form");
+                    if (!formEl) return;
+
+                    // -------- client-side validation helpers --------
+                    function markError(el, msg) {
+                        if (!el) return;
+                        el.classList.add('is-invalid');
+                        var fb = el.parentElement ? el.parentElement.querySelector('.invalid-feedback.client') : null;
+                        if (!fb) {
+                            fb = document.createElement('div');
+                            fb.className = 'invalid-feedback client d-block';
+                            if (el.parentElement) el.parentElement.appendChild(fb);
+                        }
+                        fb.textContent = msg;
+                    }
+
+                    function clearClientErrors(root) {
+                        root.querySelectorAll('.is-invalid').forEach(function(n){ n.classList.remove('is-invalid'); });
+                        root.querySelectorAll('.invalid-feedback.client').forEach(function(n){ n.remove(); });
+                    }
+
+                    function collectExistingVersionsForSelectedProject() {
+                        var ids = [];
+                        if (!selVersion) return ids;
+                        for (var i = 0; i < selVersion.options.length; i++) {
+                            var opt = selVersion.options[i];
+                            if (!opt.value) continue;
+                            // option text like "<label>", we used prettifyLabel earlier (may include project id)
+                            var text = opt.textContent || '';
+                            // best effort: take full text as version label (server returns unique id for value)
+                            ids.push(text.trim());
+                        }
+                        return ids;
+                    }
+
+                    function toggleSubmitBusy(busy) {
+                        if (!btnSubmitCreate) return;
+                        btnSubmitCreate.disabled = !!busy;
+                        btnSubmitCreate.innerHTML = busy
+                          ? '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...'
+                          : 'Create';
+                    }
+
+                    clearClientErrors(createBody);
+
+                    var typeSel = formEl.querySelector('select[name="version_type"]');
+                    var inpText = formEl.querySelector('input[name="version"]');
+                    var inpFile = formEl.querySelector('input[type="file"][name="source_archive"]');
+
+                    var type = typeSel ? String(typeSel.value || '') : 'GIT_HASH';
+                    var isFile = (type === 'FILE_HASH');
+                    var version = (inpText && inpText.value) ? inpText.value.trim() : '';
+
+                    // required checks
+                    if (!isFile && !version) {
+                        markError(inpText, 'Version is required for GIT_HASH.');
+                        return;
+                    }
+                    if (isFile && (!inpFile || !inpFile.files || !inpFile.files[0])) {
+                        markError(inpFile, 'Archive is required for FILE_HASH.');
+                        return;
+                    }
+
+                    // duplicate check (best-effort on client)
+                    var existing = collectExistingVersionsForSelectedProject();
+                    if (version && existing.indexOf(version) !== -1) {
+                        markError(inpText, 'This version already exists for the selected project.');
+                        return;
+                    }
+
+                    var fd = new FormData(formEl);
+                    var csrf = formEl.querySelector('input[name="csrfmiddlewaretoken"]');
+                    if (csrf) fd.append("csrfmiddlewaretoken", csrf.value);
+
+                    toggleSubmitBusy(true);
+                    fetch(url, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        body: fd
+                    })
+                        .then(function(r){ return r.json(); })
+                        .then(function(data){
+                            if (data.ok) {
+                                var metaUrl = metaUrlTemplate.replace("/0/", "/" + pid + "/");
+                                fetch(metaUrl)
+                                    .then(function(r){ return r.json(); })
+                                    .then(function(meta){
+                                        if (meta.versions && selVersion) {
+                                            selVersion.innerHTML = "";
+                                            selVersion.add(new Option("Use default (latest on default branch)", ""));
+                                            for (var i = 0; i < meta.versions.length; i++) {
+                                                var v = meta.versions[i];
+                                                var text = prettifyLabel(v.label || v.version || v.id, pid);
+                                                selVersion.add(new Option(text, v.id));
+                                            }
+                                            var newId = (data.version && data.version.id) ? String(data.version.id) : null;
+                                            if (newId) selVersion.value = newId;
+                                            if (window.jQuery && window.jQuery.fn && window.jQuery.fn.selectpicker) {
+                                                var $sv = window.jQuery(selVersion);
+                                                $sv.selectpicker('refresh');
+                                                if (newId) $sv.selectpicker('val', newId);
+                                            }
+                                            var evt = document.createEvent('HTMLEvents');
+                                            evt.initEvent('change', true, false);
+                                            selVersion.dispatchEvent(evt);
+                                        }
+                                    })
+                                    .finally(function(){
+                                        toggleSubmitBusy(false);
+                                        bsModal.hide();
+                                    });
+                            } else if (data.html) {
+                                createBody.innerHTML = data.html;
+                                initProjectVersionForm(createBody);
+                                toggleSubmitBusy(false);
+                            } else {
+                                createBody.innerHTML = '<div class="alert alert-danger">Error while saving version.</div>';
+                                toggleSubmitBusy(false);
+                            }
+                        })
+                        .catch(function(){
+                            createBody.innerHTML = '<div class="alert alert-danger">Error while saving version.</div>';
+                            toggleSubmitBusy(false);
+                        });
+                }
+
+                if (btnOpenCreate) {
+                    btnOpenCreate.addEventListener("click", function () {
+                        loadCreateForm();
+                        bsModal.show();
+                    });
+                }
+                if (btnSubmitCreate) {
+                    btnSubmitCreate.addEventListener("click", submitCreateForm);
+                }
+
+                if (selProject) {
+                    selProject.addEventListener("change", updateCreateButtonState);
+                    updateCreateButtonState();
+                }
+            }
+
+            if (document.readyState === "loading") {
+                document.addEventListener("DOMContentLoaded", main);
+            } else {
+                main();
+            }
+        })();
+    </script>
+
+{% endblock %}

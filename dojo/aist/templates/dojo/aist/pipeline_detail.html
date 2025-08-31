@@ -1,0 +1,714 @@
+{% extends "base.html" %}
+{% block breadcrumbs %}
+    <li class="breadcrumb-item">
+        <a href="{% url 'dojo_aist:start_pipeline' %}">AIST Pipelines</a>
+    </li>
+    <li class="breadcrumb-item active" aria-current="page">
+        Run
+    </li>
+{% endblock %}
+{% block content %}
+    <h2 class="mb-2">AIST Pipeline: {{ pipeline.id }}</h2>
+    <p class="mb-2"><strong>Status:</strong> <span id="pl-status">{{ pipeline.status }}</span></p>
+
+    <form method="post" action="{% url 'dojo_aist:pipeline_stop' pipeline.id %}" style="display:inline;">
+        {% csrf_token %}
+        <button class="btn btn-warning btn-sm">Stop</button>
+    </form>
+    <a class="btn btn-outline-danger btn-sm" href="{% url 'dojo_aist:pipeline_delete' pipeline.id %}">Delete...</a>
+
+    <hr/>
+
+    {# --- Status specific UI --- #}
+    {% include "dojo/aist/_pipeline_status_container.html" %}
+
+    <hr/>
+
+    {# --- Logs (collapsible) --- #}
+    <div class="card mb-3">
+        <div class="card-header d-flex align-items-center justify-content-between">
+            <span>Logs</span>
+            <button
+                    type="button"
+                    class="btn btn-sm btn-outline-secondary d-flex align-items-center"
+                    id="logsToggleBtn"
+                    aria-controls="logsCollapse"
+                    aria-expanded="false"
+                    {# Bootstrap 5 attrs #}
+                    data-bs-toggle="collapse"
+                    data-bs-target="#logsCollapse"
+                    {# Bootstrap 4 attrs #}
+                    data-toggle="collapse"
+                    data-target="#logsCollapse"
+            >
+                <i class="fa fa-chevron-down me-1" id="logsChevron" aria-hidden="true"></i>
+                <span id="logsToggleText">Show</span>
+            </button>
+        </div>
+
+        <div class="collapse" id="logsCollapse">
+            <div class="card-body p-0">
+      <pre id="logbox"
+           style="max-height: 50vh; overflow: auto; background:#101317; color:#ddd; padding:12px; border-radius:0 0 .5rem .5rem; margin:0;">{{ pipeline.logs|default:"No logs yet." }}</pre>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            // ---------- DOM ----------
+            const container = document.getElementById("pipeline-status-container");
+            const st = document.getElementById("pl-status");
+            const logbox = document.getElementById("logbox");
+
+            // ---------- helpers ----------
+            function setStatusText(s) {
+                if (!st) return;
+                if (typeof s !== "string") return;
+                const t = s.trim();
+                if (t) st.textContent = t;
+            }
+
+            // ====== FINISHED hydrator (duration + JSON) ======
+
+            function jsonSyntaxHighlight(s) {
+                // экранируем спецсимволы
+                const esc = s.replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;');
+
+                // inline-цвета вместо bootstrap-классов
+                return esc.replace(
+                    /("(\\u[\da-fA-F]{4}|\\[^u]|[^\\"])*"(\s*:)?|\b(true|false|null)\b|-?\d+(?:\.\d*)?(?:[eE][+\-]?\d+)?)/g,
+                    (m) => {
+                        if (/^"/.test(m)) {
+                            // ключи "key":
+                            if (/:$/.test(m)) return '<span style="color:#6c757d">' + m + '</span>'; // secondary
+                            // строковые значения
+                            return '<span style="color:#0d6efd">' + m + '</span>'; // primary
+                        } else if (/true|false/.test(m)) {
+                            return '<span style="color:#198754">' + m + '</span>'; // success
+                        } else if (/null/.test(m)) {
+                            return '<span style="color:#6c757d">' + m + '</span>'; // muted
+                        }
+                        // числа
+                        return '<span style="color:#0dcaf0">' + m + '</span>'; // info
+                    }
+                );
+            }
+
+            function hydrateAllJsonBlocks(root = document) {
+                const views = root.querySelectorAll ? root.querySelectorAll('[id^="aist-json-view-"]') : [];
+                views.forEach(view => {
+                    const id = view.id.replace('aist-json-view-', '');
+                    // размер "по контенту"
+                    view.style.display = 'inline-block';
+                    view.style.whiteSpace = 'pre';
+                    view.style.maxWidth = '100%';
+                    view.style.overflow = 'auto';
+                    view.style.minHeight = '0';
+                    view.style.maxHeight = '';
+                    view.style.height = 'auto';
+
+                    let text = (view.textContent || '').trim();
+
+                    if (!text) {
+                        const raw = root.querySelector ? root.querySelector('#aist-json-raw-' + id) : null;
+                        const rawTxt = raw ? (raw.textContent || '').trim() : '';
+                        if (rawTxt) {
+                            try {
+                                text = JSON.stringify(JSON.parse(rawTxt), null, 2);
+                            } catch {
+                                text = rawTxt;
+                            }
+                        }
+                    }
+
+                    if (!text) {
+                        view.textContent = '(empty)';
+                        return;
+                    }
+
+                    try {
+                        if (typeof jsonSyntaxHighlight === 'function') {
+                            view.innerHTML = jsonSyntaxHighlight(text);
+                        } else {
+                            view.textContent = text;
+                        }
+                    } catch {
+                        view.textContent = text;
+                    }
+                });
+
+                const copyBtns = root.querySelectorAll ? root.querySelectorAll('.aist-json-copy-btn') : [];
+                copyBtns.forEach(btn => {
+                    if (btn.dataset.wired) return;
+                    btn.addEventListener('click', async function () {
+                        const id = this.dataset.target;
+                        const pre = root.querySelector ? root.querySelector('#aist-json-view-' + id) : null;
+                        let toCopy = pre ? (pre.textContent || '').trim() : '';
+
+                        if (!toCopy) {
+                            const raw = root.querySelector ? root.querySelector('#aist-json-raw-' + id) : null;
+                            toCopy = raw ? (raw.textContent || '').trim() : '';
+                        }
+
+                        try {
+                            await navigator.clipboard.writeText(toCopy || '{}');
+                            this.innerHTML = '<i class="fa fa-check me-1"></i>Copied';
+                            setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard me-1"></i>Copy', 1500);
+                        } catch {
+                            this.innerHTML = '<i class="fa fa-exclamation-triangle me-1"></i>Error';
+                            setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard me-1"></i>Copy', 1500);
+                        }
+                    });
+                    btn.dataset.wired = '1';
+                });
+            }
+
+            function hydrateDuration(root = document) {
+                const durEl = root.querySelector?.('#aist-duration');
+                if (!durEl) return;
+                const humanEl = root.querySelector?.('#aist-duration-human');
+                const start = new Date(durEl.dataset.start || '');
+                const end = new Date(durEl.dataset.end || '');
+                if (isNaN(start) || isNaN(end)) return;
+                const s = Math.max(0, Math.floor((end - start) / 1000));
+                const hh = String(Math.floor(s / 3600)).padStart(2, '0');
+                const mm = String(Math.floor((s % 3600) / 60)).padStart(2, '0');
+                const ss = String(s % 60).padStart(2, '0');
+                durEl.textContent = `${hh}:${mm}:${ss}`;
+                if (humanEl) {
+                    let txt;
+                    if (s < 60) txt = '(just now)';
+                    else if (s < 3600) {
+                        const m = Math.round(s / 60);
+                        txt = m === 1 ? '(~ 1 minute)' : `(~ ${m} minutes)`;
+                    } else {
+                        const h = Math.floor(s / 3600), m = Math.round((s % 3600) / 60);
+                        txt = m ? `(~ ${h} hours ${m} minutes)` : `(~ ${h} hours)`;
+                    }
+                    humanEl.textContent = txt;
+                }
+            }
+
+            function wireJsonButtons(root = document) {
+                const view = root.querySelector?.('#aist-json-view');
+                const toggleBtn = root.querySelector?.('#aist-json-toggle');
+                const copyBtn = root.querySelector?.('#aist-json-copy');
+                if (toggleBtn && view && !toggleBtn.dataset.wired) {
+                    let visible = true;
+                    toggleBtn.addEventListener('click', function () {
+                        visible = !visible;
+                        view.style.display = visible ? 'block' : 'none';
+                        this.innerHTML = visible
+                            ? '<i class="fa fa-chevron-down me-1"></i>Hide'
+                            : '<i class="fa fa-chevron-right me-1"></i>Show';
+                    });
+                    toggleBtn.dataset.wired = '1';
+                }
+                if (copyBtn && !copyBtn.dataset.wired) {
+                    copyBtn.addEventListener('click', async function () {
+                        try {
+                            const raw = root.querySelector?.('#aist-json-raw');
+                            const txt = raw ? (raw.textContent || '{}') : '{}';
+                            await navigator.clipboard.writeText(JSON.stringify(JSON.parse(txt), null, 2));
+                            this.innerHTML = '<i class="fa fa-check me-1"></i>Copied';
+                            setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard me-1"></i>Copy', 1500);
+                        } catch {
+                            this.innerHTML = '<i class="fa fa-exclamation-triangle me-1"></i>Error';
+                            setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard me-1"></i>Copy', 1500);
+                        }
+                    });
+                    copyBtn.dataset.wired = '1';
+                }
+            }
+
+            function hydrateFinished(root = document) {
+                hydrateDuration(root);
+                hydrateAllJsonBlocks(root);
+                wireJsonButtons(root);
+            }
+
+            // ====== WAITING_DEDUP hydrator (progress polling) ======
+            let dedupTimer = null;
+
+            function stopDedupPolling() {
+                if (dedupTimer) {
+                    clearInterval(dedupTimer);
+                    dedupTimer = null;
+                }
+            }
+
+            function renderOverall(overall, root = document) {
+                const bar = root.querySelector?.('#overall-bar');
+                const badge = root.querySelector?.('#overall-badge');
+                const rem = root.querySelector?.('#overall-remaining');
+                if (!bar || !badge || !rem) return;
+                const pct = Math.max(0, Math.min(100, parseInt(overall.percent || 0)));
+                bar.style.width = pct + "%";
+                bar.textContent = pct + "%";
+                badge.textContent = (overall.processed || 0) + " / " + (overall.total_findings || 0);
+                rem.textContent = "(remaining: " + (overall.pending || 0) + ")";
+            }
+
+            function renderRows(tests, root = document) {
+                const tbody = root.querySelector?.('#tests-progress-body');
+                if (!tbody) return;
+                const rows = (tests || []).map(t => {
+                    const pct = Math.max(0, Math.min(100, parseInt(t.percent || 0)));
+                    const badge = `${t.processed || 0} / ${t.total_findings || 0}`;
+                    return `
+        <tr>
+          <td><span class="text-nowrap">${t.test_name || ("Test #" + t.test_id)}</span></td>
+          <td>
+            <div class="progress" style="height:16px;">
+              <div class="progress-bar ${t.completed ? 'bg-success' : ''}" role="progressbar"
+                   style="width:${pct}%;" aria-valuemin="0" aria-valuemax="100">${pct}%</div>
+            </div>
+          </td>
+          <td class="text-end"><span class="badge bg-secondary">${badge}</span></td>
+        </tr>`;
+                }).join("");
+                tbody.innerHTML = rows || `<tr><td colspan="3" class="text-muted">No tests attached.</td></tr>`;
+            }
+
+            function hydrateWaitingDedup(root = document) {
+                stopDedupPolling();
+                // если блок ещё не отрисован — выходим
+                if (!root.querySelector?.('#overall-bar')) return;
+
+                const url = "{% url 'dojo_aist:deduplication_progress' pipeline.id %}";
+                const poll = () => {
+                    fetch(url)
+                        .then(r => r.json())
+                        .then(data => {
+                            renderOverall(data.overall || {}, root);
+                            renderRows(data.tests || [], root);
+
+                            const s = (data.status || '').trim();
+                            if (s && s !== "WAITING_DEDUPLICATION_TO_FINISH" && s !== "WAITING_FOR_DEDUP") {
+                                stopDedupPolling();
+                            }
+                        })
+                        .catch(() => {
+                        });
+                };
+                poll();
+                dedupTimer = setInterval(poll, 2500);
+            }
+
+            // ====== ENRICH (FINDING_POSTPROCESSING) via SSE ======
+            let enrichSrc = null;
+
+            function stopEnrichSSE() {
+                if (enrichSrc) {
+                    try {
+                        enrichSrc.close();
+                    } catch (_) {
+                    }
+                    enrichSrc = null;
+                }
+            }
+
+
+            function renderEnrichProgress(data, root = document) {
+                const bar = root.querySelector?.('#enrich-bar');
+                const counter = root.querySelector?.('#enrich-counter');
+                if (!bar || !counter) return;
+                const total = parseInt(data?.total ?? 0);
+                const done = parseInt(data?.done ?? 0);
+                const pct = total > 0 ? Math.max(0, Math.min(100, Math.floor(done * 100 / total))) : 0;
+
+                bar.style.width = pct + '%';
+                bar.textContent = pct + '%';
+                bar.setAttribute('aria-valuenow', String(pct));
+                counter.textContent = `${done} / ${total}`;
+            }
+
+            function hydrateFindingPostprocessing(root = document) {
+                stopEnrichSSE();
+
+                const cont = root.querySelector?.('#enrich-progress-container');
+                if (!cont) return;
+
+
+                enrichSrc = new EventSource("{% url 'dojo_aist:pipeline_enrich_progress' pipeline.id %}");
+
+                enrichSrc.onmessage = (evt) => {
+                    try {
+                        const data = JSON.parse(evt?.data || '{}');
+                        renderEnrichProgress(data, root);
+                    } catch (_) {
+                    }
+                };
+
+
+                enrichSrc.addEventListener('done', () => {
+                    stopEnrichSSE();
+                });
+
+                enrichSrc.onerror = () => { /* noop */
+                };
+            }
+
+            function hydratePushToAI(root) {
+                const scope = (root && root.querySelector) ? root : document;
+                const section = scope.querySelector('#aist-push-to-ai');
+                if (!section) return;
+
+                // data-* from inline-section
+                const productId = section.dataset.productId;
+                const pipelineId = section.dataset.pipelineId;
+                const endpointAnalyzers = section.dataset.endpointAnalyzers;
+                const endpointFindings = section.dataset.endpointFindings;
+                const endpointSend = section.dataset.endpointSend;
+
+                // Controls
+                const elLimit = section.querySelector('#aist-filter-limit');
+                const boxList = section.querySelector('#aist-filter-analyzers-boxes');
+                const btnAll = section.querySelector('#aist-analyzers-select-all');
+                const btnClear = section.querySelector('#aist-analyzers-clear');
+                const elCwe = section.querySelector('#aist-filter-cwe');
+                const elQuery = section.querySelector('#aist-filter-query');
+
+                const btnPreview = section.querySelector('#aist-btn-preview');
+                const btnSend = section.querySelector('#aist-btn-send');
+                const tblBody = section.querySelector('#aist-preview-table tbody');
+                const chkAllRows = section.querySelector('#aist-select-all');
+                const spinner = section.querySelector('#aist-preview-spinner');
+                const statusEl = section.querySelector('#aist-preview-status');
+
+
+                const parseCommaInts = (s) => (s || '').split(',').map(x => x.trim()).filter(Boolean).map(x => parseInt(x, 10)).filter(Number.isFinite);
+
+                function getJSON(url, params) {
+                    const usp = new URLSearchParams(params || {});
+                    const full = url + (usp.toString() ? '?' + usp.toString() : '');
+                    return fetch(full, {credentials: 'same-origin'}).then(r => {
+                        if (!r.ok) throw new Error('HTTP ' + r.status + ' ' + r.statusText);
+                        return r.json();
+                    });
+                }
+
+                function getCsrfToken() {
+                    const fromInput = document.querySelector('input[name="csrfmiddlewaretoken"]')?.value;
+                    if (fromInput) return fromInput;
+
+                    const fromMeta = document.querySelector('meta[name="csrf-token"]')?.content;
+                    if (fromMeta) return fromMeta;
+
+                    const m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+                    if (m) return decodeURIComponent(m[1]);
+
+                    return '';
+                }
+
+                function postJSON(url, payload) {
+                    const csrf = getCsrfToken();
+                    return fetch(url, {
+                        method: 'POST',
+                        credentials: 'same-origin',
+                        headers: {
+                            'Content-Type': 'application/json',
+                            'X-CSRFToken': csrf,
+                            'X-Requested-With': 'XMLHttpRequest'
+                        },
+                        body: JSON.stringify(payload || {})
+                    }).then(r => {
+                        if (!r.ok) {
+                            // Для отладки полезно увидеть текст ответа с причиной CSRF
+                            return r.text().then(t => {
+                                throw new Error(`HTTP ${r.status} ${r.statusText}${t ? ` — ${t}` : ''}`);
+                            });
+                        }
+                        return r.json().catch(() => ({}));
+                    });
+                }
+
+                async function loadAnalyzers() {
+                    const data = await getJSON(endpointAnalyzers, {});
+                    const list = (data && data.analyzers) || [];
+
+                    boxList.innerHTML = '';
+                    let idx = 0;
+                    for (const item of list) {
+
+                        const value = (item && (item.key || item.slug || item.name)) || String(item);
+                        const label = (item && (item.display || item.title || item.name || item.key)) || String(item);
+                        if (!label || !label.trim()) continue;
+
+                        const id = `aist-an-${idx++}`;
+                        const wrap = document.createElement('div');
+                        wrap.className = 'form-check';
+                        const input = document.createElement('input');
+                        input.type = 'checkbox';
+                        input.className = 'form-check-input';
+                        input.id = id;
+                        input.value = value;
+                        input.checked = true;
+                        const lab = document.createElement('label');
+                        lab.className = 'form-check-label';
+                        lab.setAttribute('for', id);
+                        lab.textContent = label;
+
+                        wrap.appendChild(input);
+                        wrap.appendChild(lab);
+                        boxList.appendChild(wrap);
+                    }
+
+
+                    if (!boxList.children.length && list.length) {
+                        requestAnimationFrame(() => {
+                            if (!boxList.children.length) {
+                                let i = 0;
+                                for (const item of list) {
+                                    const value = (item && (item.key || item.slug || item.name)) || String(item);
+                                    const label = (item && (item.display || item.title || item.name || item.key)) || String(item);
+                                    if (!label || !label.trim()) continue;
+                                    const id = `aist-an-r${i++}`;
+                                    const wrap = document.createElement('div');
+                                    wrap.className = 'form-check';
+                                    const input = document.createElement('input');
+                                    input.type = 'checkbox';
+                                    input.className = 'form-check-input';
+                                    input.id = id;
+                                    input.value = value;
+                                    input.checked = true;
+                                    const lab = document.createElement('label');
+                                    lab.className = 'form-check-label';
+                                    lab.setAttribute('for', id);
+                                    lab.textContent = label;
+                                    wrap.appendChild(input);
+                                    wrap.appendChild(lab);
+                                    boxList.appendChild(wrap);
+                                }
+                            }
+                        });
+                    }
+                }
+
+                function selectedAnalyzers() {
+                    return Array.from(boxList.querySelectorAll('input[type="checkbox"]:checked')).map(i => i.value);
+                }
+
+                function buildFindingsQueryParams() {
+                    const limit = Math.max(1, parseInt(elLimit?.value || '10', 10));
+                    const cwes = parseCommaInts(elCwe?.value);
+                    const query = (elQuery?.value || '').trim();
+                    return {
+                        product: productId,
+                        analyzers: selectedAnalyzers().join(','),
+                        cwe: cwes.join(','),
+                        query,
+                        limit: limit
+                    };
+                }
+
+                function renderRows(findings) {
+                    if (!tblBody) return;
+                    tblBody.innerHTML = '';
+                    for (const f of findings) {
+                        const tr = document.createElement('tr');
+                        tr.dataset.findingId = String(f.id);
+
+                        const tdSel = document.createElement('td');
+                        const chk = document.createElement('input');
+                        chk.type = 'checkbox';
+                        chk.className = 'aist-row-select';
+                        chk.checked = true;
+                        tdSel.appendChild(chk);
+
+                        const tdSev = document.createElement('td');
+                        tdSev.textContent = f.severity || '';
+                        const tdTitle = document.createElement('td');
+                        tdTitle.textContent = f.title || f.summary || '';
+                        const tdCwe = document.createElement('td');
+                        tdCwe.textContent = Array.isArray(f.cwe) ? f.cwe.join(', ') : (f.cwe || '');
+                        const tdAnalyzer = document.createElement('td');
+                        tdAnalyzer.textContent = f.analyzer_display || f.analyzer || '';
+                        const tdLoc = document.createElement('td');
+                        tdLoc.textContent = [f.file_path, f.line].filter(Boolean).join(':');
+                        const tdId = document.createElement('td');
+                        tdId.textContent = f.id;
+
+                        tr.append(tdSel, tdSev, tdTitle, tdCwe, tdAnalyzer, tdLoc, tdId);
+                        tblBody.appendChild(tr);
+                    }
+                }
+
+                function toggleAllSelection(checked) {
+                    section.querySelectorAll('input.aist-row-select').forEach(ch => ch.checked = !!checked);
+                }
+
+                async function refreshPreview() {
+                    const anySelected = boxList.querySelector('input[type="checkbox"]:checked');
+                    if (!anySelected) {
+                        tblBody.innerHTML = '';
+                        if (statusEl) statusEl.textContent = 'No analyzers selected.';
+                        return;
+                    }
+                    if (spinner) spinner.style.display = '';
+                    try {
+                        const params = buildFindingsQueryParams();
+                        const raw = await getJSON(endpointFindings, params);
+                        const list = (raw && (raw.results || raw.findings || raw)) || [];
+                        const desired = Math.max(1, parseInt(elLimit?.value || '10', 10));
+                        const toShow = list.slice(0, desired);
+                        renderRows(toShow);
+                        {# TODO: fix, not showed #}
+                        if (statusEl) statusEl.textContent = `Showing ${chosen.length} of ${list.length} matching findings.`;
+                    } catch (err) {
+                    } finally {
+                        if (spinner) spinner.style.display = 'none';
+                    }
+                }
+
+                async function sendSelectedToAI() {
+                    const ids = Array.from(section.querySelectorAll('tbody tr'))
+                        .filter(tr => tr.querySelector('.aist-row-select')?.checked)
+                        .map(tr => tr.dataset.findingId);
+                    if (!ids.length) {
+                        alert('Please select at least one finding to send.');
+                        return;
+                    }
+                    const payload = {
+                        pipeline_id: pipelineId,
+                        finding_ids: ids,
+                        filters: {
+                            limit: parseInt(elLimit?.value || '10', 10),
+                            analyzers: selectedAnalyzers(),
+                            cwe: parseCommaInts(elCwe?.value),
+                            query: (elQuery?.value || '').trim()
+                        }
+                    };
+                    if (btnSend) {
+                        btnSend.disabled = true;
+                        btnSend.textContent = 'Sending...';
+                    }
+                    try {
+                        await postJSON(endpointSend, payload);
+                    } catch (err) {
+                        console.error('Send failed:', err);
+                        alert('Failed to send to AI. See console for details.');
+                    } finally {
+                        if (btnSend) {
+                            btnSend.disabled = false;
+                            btnSend.textContent = 'Send selected to AI';
+                        }
+                    }
+                }
+
+                btnPreview && btnPreview.addEventListener('click', refreshPreview);
+                btnSend && btnSend.addEventListener('click', sendSelectedToAI);
+                chkAllRows && chkAllRows.addEventListener('change', e => toggleAllSelection(e.target.checked));
+                btnAll && btnAll.addEventListener('click', () => {
+                    boxList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = true);
+                });
+                btnClear && btnClear.addEventListener('click', () => {
+                    boxList.querySelectorAll('input[type="checkbox"]').forEach(cb => cb.checked = false);
+                });
+
+                // Первая инициализация
+                (async () => {
+                    await loadAnalyzers();
+                    await refreshPreview();
+                })();
+            }
+
+            const HYDRATORS = {
+                "FINISHED": hydrateFinished,
+                "WAITING_DEDUPLICATION_TO_FINISH": hydrateWaitingDedup,
+                "FINDING_POSTPROCESSING": hydrateFindingPostprocessing,
+                "WAITING_CONFIRMATION_TO_PUSH_TO_AI": hydratePushToAI,
+            };
+
+            function runHydratorFor(status, root = container) {
+                stopDedupPolling();
+                stopEnrichSSE();
+                const fn = HYDRATORS[(status || "").trim()];
+                if (fn) fn(root);
+            }
+
+
+            const initialStatus = (st?.textContent || "").trim();
+            if (initialStatus) runHydratorFor(initialStatus, document);
+
+            // ---------- Logs SSE ----------
+            const srcLogs = new EventSource("{% url 'dojo_aist:pipeline_logs_stream' pipeline.id %}");
+            let autoscroll = true;
+            if (logbox) {
+                logbox.addEventListener("scroll", () => {
+                    autoscroll = (logbox.scrollTop + logbox.clientHeight + 5) >= logbox.scrollHeight;
+                });
+            }
+            srcLogs.onmessage = (evt) => {
+                if (!logbox || !evt?.data) return;
+                logbox.textContent += (logbox.textContent ? "\n" : "") + evt.data;
+                if (autoscroll) logbox.scrollTop = logbox.scrollHeight;
+            };
+            srcLogs.addEventListener("done", () => {
+                setStatusText("FINISHED");
+                runHydratorFor("FINISHED", document);
+                srcLogs.close();
+            });
+
+            // ---------- Status SSE ----------
+            const srcStatus = new EventSource("{% url 'dojo_aist:pipeline_status_stream' pipeline.id %}");
+
+            srcStatus.onmessage = (evt) => {
+                if (evt?.data) setStatusText(evt.data);
+            };
+
+            srcStatus.addEventListener("status", (evt) => {
+                if (evt?.data) setStatusText(evt.data);
+
+                fetch(window.location.href, {headers: {"X-Partial": "status"}})
+                    .then(r => r.text())
+                    .then(html => {
+                        const parser = new DOMParser();
+                        const doc = parser.parseFromString(html, "text/html");
+                        const newContainer = doc.getElementById("pipeline-status-container");
+                        if (!newContainer || !container) return;
+
+                        container.innerHTML = newContainer.innerHTML;
+
+                        const ds = newContainer.getAttribute("data-status");
+                        const s = (ds || evt?.data || st?.textContent || "").trim();
+                        if (s) runHydratorFor(s, container);
+                    })
+                    .catch(console.warn);
+            });
+
+            srcStatus.addEventListener("done", (evt) => {
+                const s = (evt?.data || "FINISHED");
+                setStatusText(s);
+                runHydratorFor(s, document);
+                srcStatus.close();
+            });
+
+            document.getElementById('aist-ai-responses')?.addEventListener('shown.bs.collapse', function (ev) {
+                hydrateAllJsonBlocks(ev.target);
+            });
+            if (window.jQuery) {
+                jQuery('#aist-ai-responses').on('shown.bs.collapse', function (ev) {
+                    hydrateAllJsonBlocks(ev.target);
+                });
+            }
+
+            var v = document.getElementById('aist-json-view-{{ r.id }}');
+            if (!v) return;
+            if (typeof window.jsonSyntaxHighlight === 'function') {
+                try {
+                    v.innerHTML = window.jsonSyntaxHighlight(v.textContent);
+                } catch (e) {
+                }
+            }
+
+            srcStatus.onerror = () => {
+            };
+        })();
+    </script>
+
+
+{% endblock %}

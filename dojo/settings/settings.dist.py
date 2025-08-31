@@ -17,6 +17,7 @@ from pathlib import Path
 import environ
 import pghistory
 from celery.schedules import crontab
+from kombu import Queue
 from netaddr import IPNetwork, IPSet
 
 from dojo import __version__
@@ -953,6 +954,8 @@ INSTALLED_APPS = (
     "auditlog",
     "pgtrigger",
     "pghistory",
+    "dojo.aist",
+    "django_github_app.apps.GitHubAppConfig"
     "single_session",
 )
 
@@ -1234,6 +1237,12 @@ CELERY_IMPORTS = ("dojo.tools.tool_issue_updater", )
 WATSON_ASYNC_INDEX_UPDATE_THRESHOLD = env("DD_WATSON_ASYNC_INDEX_UPDATE_THRESHOLD")
 WATSON_ASYNC_INDEX_UPDATE_BATCH_SIZE = env("DD_WATSON_ASYNC_INDEX_UPDATE_BATCH_SIZE")
 
+# CELERY_TASK_DEFAULT_QUEUE = "celery"
+# CELERY_TASK_QUEUES = (
+#     Queue("celery"),
+#     Queue("aist_logs"),
+# )
+
 # Celery beat scheduled tasks
 CELERY_BEAT_SCHEDULE = {
     "add-alerts": {
@@ -1287,6 +1296,16 @@ CELERY_BEAT_SCHEDULE = {
     #     'task': 'dojo.tasks.fix_loop_duplicates_task',
     #     'schedule': timedelta(hours=12)
     # },
+    # "aist-flush-logs": {
+    #     "task": "aist.flush_logs_once",
+    #     "schedule": 0.5,  # each half of second
+    #     "options": {"queue": "aist_logs"},
+    # }
+    "reconcile-deduplication": {
+        "task": "dojo.aist.reconcile_deduplication",
+        "schedule": crontab(minute="*/2"),
+        "kwargs": {"batch_size": 200, "max_runtime_s": 50},
+    },
 
 }
 
@@ -1844,6 +1863,16 @@ LOGGING = {
             "level": str(LOG_LEVEL),
             "propagate": False,
         },
+        "github_app": {
+            "handlers": [rf"{LOGGING_HANDLER}"],
+            "level": str(LOG_LEVEL),
+            "propagate": True,
+        },
+        "django_github_app": {
+            "handlers": [rf"{LOGGING_HANDLER}"],
+            "level": str(LOG_LEVEL),
+            "propagate": True,
+        },
     },
 }
 
@@ -2101,3 +2130,28 @@ PGHISTORY_OBJ_FIELD = pghistory.ObjForeignKey(db_index=True)
 #########################################################################################################
 # End of Auditlog configuration                                                                          #
 #########################################################################################################
+
+AIST_PIPELINE_CODE_PATH = env(
+    "AIST_PIPELINE_CODE_PATH",
+    default=str(Path(__file__).resolve().parent.parent.parent / "sast-combinator" / "tools" / "sast-pipeline")
+)
+
+AIST_PROJECTS_BUILD_DIR = env("AIST_PROJECTS_BUILD_DIR", default="/tmp/aist/projects")
+
+PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="https://157.90.113.55:8443/")
+AIST_AI_TRIAGE_WEBHOOK_URL=env("AIST_AI_TRIAGE_WEBHOOK_URL", default="https://flaming.app.n8n.cloud/webhook/triage-sast")
+AIST_AI_TRIAGE_SECRET=""
+REST_FRAMEWORK["DEFAULT_PERMISSION_CLASSES"] += ("rest_framework.permissions.IsAuthenticated",)
+
+GITHUB_APP = {
+    "WEBHOOK_SECRET": env("WEBHOOK_SECRET", default=""),
+    "APP_ID": env("GITHUB_APP_ID", default=""),
+    "CLIENT_ID": env("GITHUB_CLIENT_ID", default=""),
+    "NAME": env("GITHUB_APP_NAME", default=""),
+    "WEBHOOK_TYPE": env("WEBHOOK_TYPE", default=""),
+    "PRIVATE_KEY": env("PRIVATE_KEY", default="")
+}
+
+LOGIN_EXEMPT_URLS += (r"^aist/pipelines/[^/]+/callback/?$", r"^aist/github_hook/")
+
+CELERY_TASK_IGNORE_RESULT = False

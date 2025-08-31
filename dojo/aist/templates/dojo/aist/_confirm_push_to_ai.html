@@ -1,0 +1,89 @@
+{# dojo/aist/_confirm_push_to_ai.html #}
+<section id="aist-push-to-ai"
+         class="card"
+         data-pipeline-id="{{ pipeline.id }}"
+         data-project-id="{{ pipeline.project.id }}"
+         data-product-id="{{ pipeline.project.product.id }}"
+         data-endpoint-analyzers="{% url 'dojo_aist:product_analyzers_json' pipeline.project.product.pk %}"
+         data-endpoint-findings="{% url 'dojo_aist:search_findings_json' %}"
+         data-endpoint-send="{% url 'dojo_aist:send_request_to_ai' pipeline.id %}">
+  <div class="card-header d-flex align-items-center justify-content-between">
+    <h5 class="mb-0">Push selected findings to AI</h5>
+  </div>
+
+  <div class="card-body">
+    <!-- Filters -->
+    <form id="aist-push-to-ai-form" class="mb-3" onsubmit="return false;">
+      <div class="row align-items-end">
+        <!-- Count -->
+        <div class="col-md-2 mb-3 form-group">
+          <label for="aist-filter-limit">Desired count</label>
+          <input type="number" min="1" step="1" class="form-control" id="aist-filter-limit" value="10">
+          <small class="form-text text-muted">CRITICAL are preferred first, then HIGH, etc.</small>
+        </div>
+
+        <!-- Analyzers multiselect -->
+          <div class="col-md-4 mb-3 form-group">
+              <label for="aist-filter-analyzers">Analyzers</label>
+              <div id="aist-filter-analyzers-boxes" class="border rounded p-2"
+                   style="max-height: 240px; overflow:auto;">
+                  <!-- JS will inject: <div class="form-check"><input type="checkbox" ...><label>...</label></div> -->
+              </div>
+
+              <!-- быстрые действия -->
+              <div class="mt-1">
+                  <button type="button" class="btn btn-link p-0 mr-2" id="aist-analyzers-select-all">Select all</button>
+                  <button type="button" class="btn btn-link p-0" id="aist-analyzers-clear">Clear</button>
+              </div>
+              <small class="form-text text-muted">Pick analyzers that produced findings for this Product.</small>
+          </div>
+
+        <!-- CWE filter -->
+        <div class="col-md-4 mb-3 form-group">
+          <label for="aist-filter-cwe">CWE (comma-separated)</label>
+          <input type="text" class="form-control" id="aist-filter-cwe" placeholder="e.g. 79, 89">
+        </div>
+
+        <!-- Query filter -->
+        <div class="col-md-4 mb-3 form-group">
+          <label for="aist-filter-query">Query</label>
+          <input type="text" class="form-control" id="aist-filter-query" placeholder="search in title/description/path">
+        </div>
+      </div>
+
+      <div class="d-flex align-items-center mt-1">
+        <button id="aist-btn-preview" type="button" class="btn btn-primary mr-2">Refresh preview</button>
+        <div id="aist-preview-spinner" class="spinner-border spinner-border-sm text-secondary" role="status" style="display:none;">
+          <span class="sr-only">Loading...</span>
+        </div>
+        <div id="aist-preview-status" class="ml-2 small text-muted"></div>
+      </div>
+    </form>
+
+    <!-- Preview table -->
+    <div class="table-responsive">
+      <table class="table table-sm table-striped table-hover" id="aist-preview-table">
+        <thead class="thead-light">
+          <tr>
+            <th style="width:28px;">
+              <input type="checkbox" id="aist-select-all" checked>
+            </th>
+            <th>Severity</th>
+            <th>Title</th>
+            <th>CWE</th>
+            <th>Analyzer</th>
+            <th>Location</th>
+            <th>ID</th>
+          </tr>
+        </thead>
+        <tbody>
+          <!-- Rows injected by JS -->
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card-footer d-flex justify-content-end">
+    <button id="aist-btn-send" type="button" class="btn btn-success">Send selected to AI</button>
+  </div>
+</section>

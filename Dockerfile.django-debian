@@ -49,6 +49,7 @@ RUN \
     dnsutils \
     xmlsec1 \
     git \
+    docker.io \
     uuid-runtime \
     libpq-dev \
     # only required for the dbshell (used by the initializer job)

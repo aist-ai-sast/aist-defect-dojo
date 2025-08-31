@@ -2141,7 +2141,7 @@ class Test(models.Model):
     branch_tag = models.CharField(editable=True, max_length=150,
                                    null=True, blank=True, help_text=_("Tag or branch that was tested, a reimport may update this field."), verbose_name=_("Branch/Tag"))
     api_scan_configuration = models.ForeignKey(Product_API_Scan_Configuration, null=True, editable=True, blank=True, on_delete=models.CASCADE, verbose_name=_("API Scan Configuration"))
-
+    deduplication_complete = models.BooleanField(default=False)
     class Meta:
         indexes = [
             models.Index(fields=["engagement", "test_type"]),

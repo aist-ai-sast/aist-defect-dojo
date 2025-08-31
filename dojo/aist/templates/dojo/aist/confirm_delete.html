@@ -1,0 +1,10 @@
+{% extends "base.html" %}
+{% block content %}
+<h3>Delete AIST Pipeline {{ pipeline.id }}?</h3>
+<p>This action cannot be undone.</p>
+<form method="post">
+  {% csrf_token %}
+  <a class="btn btn-secondary" href="{% url 'dojo_aist:pipeline_detail' pipeline.id %}">Cancel</a>
+  <button class="btn btn-danger">Delete</button>
+</form>
+{% endblock %}

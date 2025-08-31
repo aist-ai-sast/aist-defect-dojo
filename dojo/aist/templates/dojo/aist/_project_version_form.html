@@ -1,0 +1,46 @@
+<!-- _project_version_form.html -->
+<form method="post" enctype="multipart/form-data" class="form-horizontal" style="padding:0 16px 12px 16px;">
+  {% csrf_token %}
+  {{ form.project }}
+
+  {% if form.non_field_errors %}
+    <div class="alert alert-danger py-2">{{ form.non_field_errors }}</div>
+  {% endif %}
+
+  <div class="form-group">
+    <label class="control-label">Version type</label>
+    {{ form.version_type }}
+    {% for e in form.version_type.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group" id="grp_version_text">
+    <label class="control-label">Git hash / ref (for GIT_HASH)</label>
+    {{ form.version }}
+    {% for e in form.version.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group" id="grp_version_file">
+    <label class="control-label">Archive (for FILE_HASH)</label>
+    {{ form.source_archive }}
+    {% for e in form.source_archive.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+    <small class="text-muted">Upload .zip/.tar.* with sources. sha256 becomes the version ID.</small>
+
+    <!-- Индикатор прогресса/хеширования -->
+    <div id="file-progress" class="mt-2" style="display:none;">
+      <div class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></div>
+      <span class="ms-2" id="file-progress-label">Computing hash...</span>
+    </div>
+  </div>
+
+  <div class="form-group">
+    <label class="control-label">Description</label>
+    {{ form.description }}
+    {% for e in form.description.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+  </div>
+
+  <div class="form-group">
+    <label class="control-label">Metadata (JSON, optional)</label>
+    {{ form.metadata }}
+    {% for e in form.metadata.errors %}<div class="invalid-feedback d-block">{{ e }}</div>{% endfor %}
+  </div>
+</form>

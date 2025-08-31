@@ -46,6 +46,8 @@ RUN \
     tiff \
     bind-tools \
     xmlsec \
+    docker-cli \
+    docker-cli-buildx \
     git \
     util-linux \
     postgresql16-client \

@@ -96,6 +96,11 @@ def do_dedupe_finding(new_finding, *args, **kwargs):
         else:
             deduplicationLogger.debug("no configuration per parser found; using legacy algorithm")
             deduplicate_legacy(new_finding)
+        from django.db import transaction
+        from dojo.signals import finding_deduplicated
+        transaction.on_commit(lambda: finding_deduplicated.send(
+            sender=type(new_finding), finding_id=new_finding.id, test=new_finding.test
+        ))
     else:
         deduplicationLogger.debug("dedupe: skipping dedupe because it's disabled in system settings get()")
     return None

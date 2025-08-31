@@ -13,6 +13,7 @@ RUN \
     curl \
     unzip \
     gpg \
+    docker.io \
     default-jre-headless \
     jq \
     apt-file \

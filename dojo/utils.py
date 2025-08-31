@@ -243,8 +243,6 @@ def match_finding_to_existing_findings(finding, product=None, engagement=None, t
 
     logger.error("Internal error: unexpected deduplication_algorithm: '%s' ", deduplication_algorithm)
     return None
-
-
 def count_findings(findings: QuerySet) -> tuple[dict["Product", list[int]], dict[str, int]]:
     agg = (
         findings.values(prod_id=F("test__engagement__product_id"))

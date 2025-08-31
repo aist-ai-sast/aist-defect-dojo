@@ -1,0 +1,21 @@
+{# dojo/aist/_pipeline_status_container.html #}
+<div id="pipeline-status-container">
+    {% if pipeline.status == "WAITING_DEDUPLICATION_TO_FINISH" %}
+        {% include "dojo/aist/_status_waiting_dedup.html" %}
+    {% elif pipeline.status == "FINDING_POSTPROCESSING" %}
+        {% include "dojo/aist/_status_finding_postprocessing.html" %}
+    {% elif pipeline.status == "WAITING_RESULT_FROM_AI" %}
+        {% include "dojo/aist/_status_waiting_ai.html" %}
+    {% elif pipeline.status == "FINISHED" %}
+        {% include "dojo/aist/_status_finished.html" %}
+    {% elif pipeline.status == "WAITING_CONFIRMATION_TO_PUSH_TO_AI" %}
+        {% include "dojo/aist/_confirm_push_to_ai.html" %}
+    {% elif pipeline.status == "SAST_LAUNCHED" %}
+    {% elif pipeline.status == "UPLOADING_RESULTS" %}
+    {% elif pipeline.status == "PUSH_TO_AI" %}
+    {% else %}
+        <div class="alert alert-secondary">
+            <i class="fa fa-info-circle"></i> Unknown status: {{ pipeline.status }}
+        </div>
+    {% endif %}
+</div>

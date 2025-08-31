@@ -4,7 +4,7 @@ from django.conf import settings
 from django.conf.urls import include
 from django.contrib import admin
 from django.http import HttpResponse
-from django.urls import re_path
+from django.urls import re_path, include, path
 from drf_spectacular.views import SpectacularSwaggerView
 from rest_framework.authtoken import views as tokenviews
 from rest_framework.routers import DefaultRouter
@@ -224,6 +224,8 @@ api_v2_urls = [
     #  Django Rest Framework API v2
     re_path(r"^{}api/v2/".format(get_system_setting("url_prefix")), include(v2_api.urls)),
     re_path(r"^{}api/v2/user_profile/".format(get_system_setting("url_prefix")), UserProfileView.as_view(), name="user_profile"),
+    re_path(r"^{}api/v2/aist/".format(get_system_setting("url_prefix")), include("dojo.aist.api_urls", 'dojo_aist_api'),
+            name='aist'),
 ]
 
 if hasattr(settings, "API_TOKENS_ENABLED") and hasattr(settings, "API_TOKEN_AUTH_ENDPOINT_ENABLED"):
@@ -293,3 +295,7 @@ if hasattr(settings, "DJANGO_DEBUG_TOOLBAR_ENABLED"):
     if settings.DJANGO_DEBUG_TOOLBAR_ENABLED:
         from debug_toolbar.toolbar import debug_toolbar_urls
         urlpatterns += debug_toolbar_urls()
+
+urlpatterns += [
+    path('aist/', include(('dojo.aist.urls', 'dojo.aist'), namespace='dojo_aist')),
+]

@@ -1,0 +1,132 @@
+{% extends 'base.html' %}
+{% load i18n %}
+{% block breadcrumbs %}
+  <li class="breadcrumb-item">
+    <a href="{% url 'dojo_aist:start_pipeline' %}">AIST Pipelines</a>
+  </li>
+  <li class="breadcrumb-item active" aria-current="page">
+    History
+  </li>
+{% endblock %}
+
+{% block content %}
+<div class="container mt-3">
+  <h3 class="mb-3">Pipeline History</h3>
+
+<div class="card shadow-sm mb-3">
+  <div class="card-body pb-3">
+    <form method="get">
+      <!-- ряд полей -->
+      <div class="row g-3">
+        <div class="col-sm-6 col-lg-3">
+          <label class="form-label small mb-1">Project</label>
+          <select class="form-select" name="project">
+            <option value="">All projects</option>
+            {% for p in projects %}
+              <option value="{{ p.id }}" {% if selected_project|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>
+                {{ p.product.name }}
+              </option>
+            {% endfor %}
+          </select>
+        </div>
+
+        <div class="col-sm-6 col-lg-3">
+          <label class="form-label small mb-1">Search</label>
+          <input type="text" class="form-control" name="q" value="{{ search_query }}" placeholder="ID or product name">
+        </div>
+
+        <div class="col-sm-6 col-lg-2">
+          <label class="form-label small mb-1">Status</label>
+          <select class="form-select mb-1" name="status">
+            <option value="FINISHED" {% if status == "FINISHED" %}selected{% endif %}>Finished only</option>
+            <option value="ALL" {% if status == "ALL" %}selected{% endif %}>All statuses</option>
+          </select>
+        </div>
+
+        <div class="col-sm-6 col-lg-2">
+          <label class="form-label small mb-1">Per page</label>
+          <select class="form-select mb-1" name="page_size">
+            {% for n in page_sizes %}
+              <option value="{{ n }}" {% if page_obj.paginator.per_page == n %}selected{% endif %}>{{ n }}</option>
+            {% endfor %}
+          </select>
+        </div>
+          <div class="col-sm-6 col-lg-2">
+              <label class="form-label small mb-1" style="visibility:hidden">Apply</label>
+              <div class="col text-end">
+                  <button class="btn btn-primary" type="submit">Apply</button>
+              </div>
+          </div>
+      </div>
+    </form>
+  </div>
+</div>
+
+
+
+  <div class="card shadow-sm">
+    <div class="table-responsive">
+      <table class="table table-sm table-hover align-middle mb-0">
+  <thead class="table-light">…</thead>
+  <tbody>
+    {% for r in items %}
+      <tr class="table-row-link" data-href="{% url 'dojo_aist:pipeline_detail' id=r.id %}" style="cursor:pointer;">
+        <td class="text-monospace">#{{ r.id }}</td>
+        <td>{{ r.project_name }}</td>
+        <td>{{ r.updated|date:"Y-m-d H:i" }}</td>
+        <td>{% if r.duration %}{{ r.duration }}{% else %}—{% endif %}</td>
+        <td>
+          <span class="badge {% if r.status == 'FINISHED' %}bg-success{% else %}bg-secondary{% endif %}">
+            {{ r.status }}
+          </span>
+        </td>
+      </tr>
+    {% empty %}
+      <tr><td colspan="6" class="text-muted text-center py-4">No pipelines found.</td></tr>
+    {% endfor %}
+  </tbody>
+</table>
+    </div>
+
+    <div class="card-footer d-flex justify-content-between align-items-center">
+      <div class="small text-muted">
+        Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} · Total {{ page_obj.paginator.count }}
+      </div>
+      <nav>
+        <ul class="pagination mb-0">
+          {% if page_obj.has_previous %}
+            <li class="page-item">
+              <a class="page-link" href="?{{ qs }}&page={{ page_obj.previous_page_number }}">‹ Prev</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">‹ Prev</span></li>
+          {% endif %}
+
+          <li class="page-item disabled"><span class="page-link">
+            {{ page_obj.number }}
+          </span></li>
+
+          {% if page_obj.has_next %}
+            <li class="page-item">
+              <a class="page-link" href="?{{ qs }}&page={{ page_obj.next_page_number }}">Next ›</a>
+            </li>
+          {% else %}
+            <li class="page-item disabled"><span class="page-link">Next ›</span></li>
+          {% endif %}
+        </ul>
+      </nav>
+    </div>
+  </div>
+</div>
+
+<script>
+  (function () {
+    document.querySelectorAll('tr.table-row-link').forEach(function (tr) {
+      tr.addEventListener('click', function (e) {
+        if (e.target.closest('a, button')) return;
+        window.location.href = tr.dataset.href;
+      });
+    });
+  })();
+</script>
+{% endblock %}
