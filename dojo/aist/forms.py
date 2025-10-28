@@ -1,8 +1,10 @@
 from __future__ import annotations
+
 from django import forms
+
 from .models import AISTProject, AISTProjectVersion, VersionType
-import json
 from .utils import _load_analyzers_config
+
 
 class AISTProjectVersionForm(forms.ModelForm):
     class Meta:
@@ -23,9 +25,8 @@ class AISTProjectVersionForm(forms.ModelForm):
         if version_type == VersionType.FILE_HASH:
             if not src:
                 self.add_error("source_archive", "Archive is required for FILE_HASH.")
-        else:
-            if not version:
-                self.add_error("version", "Git hash / ref is required for GIT_HASH.")
+        elif not version:
+            self.add_error("version", "Git hash / ref is required for GIT_HASH.")
 
         proj = cleaned.get("project")
         if proj and version:
@@ -34,8 +35,10 @@ class AISTProjectVersionForm(forms.ModelForm):
 
         return cleaned
 
-def _signature(project_id: str|None, langs: list[str], time_class: str|None) -> str:
+
+def _signature(project_id: str | None, langs: list[str], time_class: str | None) -> str:
     return f"{project_id or ''}::{time_class or 'slow'}::{','.join(sorted(set(langs or [])))}"
+
 
 class AISTPipelineRunForm(forms.Form):
     project = forms.ModelChoiceField(
@@ -53,7 +56,7 @@ class AISTPipelineRunForm(forms.Form):
     ask_push_to_ai = forms.BooleanField(required=True, initial=True, label="Ask for confirmation before pushing to AI")
     rebuild_images = forms.BooleanField(required=False, initial=False, label="Rebuild images")
     log_level = forms.ChoiceField(
-        choices=[("INFO","INFO"),("DEBUG","DEBUG"),("WARNING","WARNING"),("ERROR","ERROR")],
+        choices=[("INFO", "INFO"), ("DEBUG", "DEBUG"), ("WARNING", "WARNING"), ("ERROR", "ERROR")],
         initial="INFO",
         label="Log level",
     )
@@ -112,7 +115,7 @@ class AISTPipelineRunForm(forms.Form):
                 max_time_class=time_class,
                 non_compile_project=non_compile_project,
                 target_languages=langs_union,
-                show_only_parent=True
+                show_only_parent=True,
             )
             defaults = cfg.get_names(filtered)
 
@@ -132,15 +135,15 @@ class AISTPipelineRunForm(forms.Form):
         if not project_version:
             project_version = proj.versions.order_by("-created").first()
 
-        return dict(
+        return {
             # from project model (immutable in the form)
-            project_id=proj.id,
-            project_version=(project_version.as_dict() if project_version else None),
+            "project_id": proj.id,
+            "project_version": (project_version.as_dict() if project_version else None),
             # from user options
-            rebuild_images=self.cleaned_data.get("rebuild_images") or False,
-            log_level=self.cleaned_data.get("log_level") or "INFO",
-            selected_languages=self.cleaned_data.get("languages") or [],
-            analyzers=self.cleaned_data.get("analyzers") or [],
-            time_class_level=None, # Here list of analyzer is presented every time, so it's overwrites this option.
-            ask_push_to_ai=self.cleaned_data.get("ask_push_to_ai") or True,
-        )
+            "rebuild_images": self.cleaned_data.get("rebuild_images") or False,
+            "log_level": self.cleaned_data.get("log_level") or "INFO",
+            "selected_languages": self.cleaned_data.get("languages") or [],
+            "analyzers": self.cleaned_data.get("analyzers") or [],
+            "time_class_level": None,  # Here list of analyzer is presented every time, so it overwrites this option.
+            "ask_push_to_ai": self.cleaned_data.get("ask_push_to_ai") or True,
+        }

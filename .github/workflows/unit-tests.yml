@@ -9,6 +9,10 @@ on:
       - bugfix
       - release/**
       - hotfix/**
+      - aist
+  push:
+    branches:
+      - aist
 
 jobs:
   build-docker-containers:

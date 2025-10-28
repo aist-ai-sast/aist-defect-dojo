@@ -1,23 +1,21 @@
 from __future__ import annotations
 
 from celery.signals import worker_process_init
-from .logging_transport import install_global_redis_log_handler
-
-from django.db import models, transaction, IntegrityError
-from django.db.models import F
-from django.db.models.signals import post_save, post_delete
-from django.utils import timezone
+from django.db import transaction
+from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
-from dojo.models import Test, Finding
+from dojo.models import Finding, Test
 from dojo.signals import finding_deduplicated
+
 from .models import ProcessedFinding, TestDeduplicationProgress
+
 
 @worker_process_init.connect
 def setup_logging_on_worker(**kwargs):
     pass
     # install handler once per worker process
-    #install_global_redis_log_handler()
+    # install_global_redis_log_handler()
 
 
 @receiver(finding_deduplicated)
@@ -32,10 +30,16 @@ def on_finding_deduplicated(sender, finding_id=None, test=None, **kwargs):
     if not test_id:
         return
 
-    ProcessedFinding.objects.get_or_create(
-        test_id=test_id,
-        finding_id=finding_id,
-    )
+    def do_create_processed_finding():
+        if not Test.objects.filter(id=test_id).exists():
+            return
+        ProcessedFinding.objects.get_or_create(
+            test_id=test_id,
+            finding_id=finding_id,
+        )
+
+    # Creating of ProcessedFinding and group update after commit current transaction
+    transaction.on_commit(do_create_processed_finding)
 
     def do_refresh():
         try:
@@ -79,6 +83,10 @@ def refresh_on_finding_save(sender, instance, created, **kwargs):
     test_id = instance.test_id
     if not test_id:
         return
+
+    if not Test.objects.filter(id=test_id).exists():
+        return
+
     def do_refresh():
         group, _ = TestDeduplicationProgress.objects.get_or_create(test_id=test_id)
         group.refresh_pending_tasks()

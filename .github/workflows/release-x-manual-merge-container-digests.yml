@@ -1,4 +1,4 @@
-name: "release-X: Merge container digests"
+name: "DD release-X: Merge container digests"
 
 env:
   GIT_USERNAME: "DefectDojo release bot"
@@ -25,6 +25,7 @@ on:
 
 jobs:
   merge-digests:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     strategy:
         fail-fast: false

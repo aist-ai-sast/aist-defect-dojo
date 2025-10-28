@@ -1,4 +1,4 @@
-name: "Release-1: Create PR for master"
+name: "DD Release-1: Create PR for master"
 
 env:
   GIT_USERNAME: "DefectDojo release bot"
@@ -22,6 +22,7 @@ on:
 
 jobs:
   create_pr:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     steps:
       - name: Validate proper bugfix branch release_number format is being used

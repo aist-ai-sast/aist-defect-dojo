@@ -389,6 +389,7 @@ def add_findings_to_auto_group(name, findings, group_by, *, create_finding_group
                 if created:
                     finding_group.findings.add(*findings)
 
+
 @dojo_model_to_id
 @dojo_async_task(signature=True)
 @app.task

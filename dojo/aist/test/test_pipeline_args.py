@@ -1,5 +1,4 @@
 # dojo/aist/test/test_pipeline_args.py
-# -*- coding: utf-8 -*-
 """
 Unit tests for PipelineArguments.analyzers profile logic.
 
@@ -9,16 +8,19 @@ Covers:
 """
 
 from unittest.mock import patch
-from django.test import TestCase
-from django.contrib.auth import get_user_model
 
-from dojo.models import Product, Product_Type, SLA_Configuration
+from django.contrib.auth import get_user_model
+from django.test import TestCase
+
 from dojo.aist.models import AISTProject
 from dojo.aist.pipeline_args import PipelineArguments
+from dojo.models import Product, Product_Type, SLA_Configuration
 
 
 class DummyCfg:
+
     """Minimal stub to emulate analyzers config object."""
+
     def __init__(self, available):
         # use a set to match .add/.remove usage in PipelineArguments
         self._available = set(available)
@@ -38,7 +40,7 @@ class PipelineArgsProfileTests(TestCase):
     def setUp(self):
         # Minimal objects for AISTProject
         self.user = get_user_model().objects.create(
-            username="tester", email="tester@example.com", password="pass"
+            username="tester", email="tester@example.com", password="pass",  # noqa: S106
         )
         self.sla = SLA_Configuration.objects.create(name="SLA default")
         self.prod_type = Product_Type.objects.create(name="PT")
@@ -46,7 +48,7 @@ class PipelineArgsProfileTests(TestCase):
             name="Test Product",
             description="desc",
             prod_type=self.prod_type,
-            sla_configuration_id=self.sla.id
+            sla_configuration_id=self.sla.id,
         )
 
     @patch("dojo.aist.pipeline_args._load_analyzers_config")
@@ -99,7 +101,7 @@ class PipelineArgsProfileTests(TestCase):
                 "analyzers": {
                     "exclude": ["bandit"],
                     "include": ["semgrep"],
-                }
+                },
             },  # profile-driven modifications
         )
 

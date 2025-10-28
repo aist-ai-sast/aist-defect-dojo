@@ -1,24 +1,39 @@
 from __future__ import annotations
+
+import hashlib
+import io
+import logging
+import shutil
+import tarfile
+import zipfile
+from contextlib import suppress
+from pathlib import Path
+
+from django.conf import settings
+from django.core.exceptions import ValidationError
+from django.core.files.storage import default_storage
+from django.core.validators import RegexValidator
 from django.db import models, transaction
 from django.utils import timezone
-from dojo.models import Test, Product, Finding
-from django.core.validators import RegexValidator
 from django_github_app.models import Installation
-from pathlib import Path
-import tarfile, zipfile, io, shutil
-from django.conf import settings
-from django.core.files.storage import default_storage
-import hashlib
-import logging
 
+from dojo.models import Finding, Product, Test
 
 _repo_part_validator = RegexValidator(
     regex=r"^[A-Za-z0-9._-]+$",
     message="Only letters, digits, dot, underscore and hyphen are allowed.",
 )
+
+# --------- Error/validation messages (TRY003/EM101) ----------
+ERR_FILEHASH_REQUIRES_SOURCE = "For FILE_HASH version type, source_archive is required."
+ERR_VERSION_ALREADY_EXISTS = "This version already exists for the selected project."
+ERR_UNSUPPORTED_ARCHIVE = "Unsupported archive format: not a ZIP or TAR.*"
+
+
 class ScmType(models.TextChoices):
     GITHUB = "GITHUB", "Github"
     GITLAB = "GITLAB", "Gitlab"
+
 
 class RepositoryInfo(models.Model):
     created = models.DateTimeField(auto_now_add=True)
@@ -27,6 +42,9 @@ class RepositoryInfo(models.Model):
     repo_owner = models.CharField(max_length=100, validators=[_repo_part_validator])
     repo_name = models.CharField(max_length=100, validators=[_repo_part_validator])
     base_url = models.CharField(max_length=255, blank=True, default="")
+
+    class Meta:
+        indexes = [models.Index(fields=["repo_owner", "repo_name", "type"])]
 
     def _get_binding(self):
         mapping = {
@@ -45,7 +63,6 @@ class RepositoryInfo(models.Model):
                 return url
         return f"{self._host()}/{self.repo_full}.git"
 
-
     @property
     def repo_full(self) -> str:
         return f"{self.repo_owner}/{self.repo_name}"
@@ -55,14 +72,11 @@ class RepositoryInfo(models.Model):
             return self.base_url.rstrip("/")
         return "https://github.com" if self.type == ScmType.GITHUB else "https://gitlab.com"
 
-    class Meta:
-        indexes = [models.Index(fields=["repo_owner", "repo_name", "type"])]
 
 class ScmGithubBinding(models.Model):
-    """
-    GitHub-specific binding for ScmInfo.
-    Keeps a relation to GitHub App Installation, without polluting ScmInfo with provider-specific fields.
-    """
+
+    """GitHub-specific binding for ScmInfo."""
+
     scm = models.OneToOneField(RepositoryInfo, on_delete=models.CASCADE, related_name="github_binding")
     installation_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     base_api_url = models.CharField(max_length=255, blank=True, default="")  # e.g. https://github.mycorp.com/api/v3
@@ -83,13 +97,14 @@ class ScmGithubBinding(models.Model):
         token = inst.get_access_token()
         return f"{self._host(scm).replace('https://', 'https://x-access-token:' + token + '@')}/{scm.repo_full}.git"
 
+
 class ScmGitlabBinding(models.Model):
-    """
-    GitLab-specific binding for ScmInfo.
-    """
+
+    """GitLab-specific binding for ScmInfo."""
+
     scm = models.OneToOneField(RepositoryInfo, on_delete=models.CASCADE, related_name="gitlab_binding")
     # just stub
-    personal_access_token = models.CharField(max_length=255, blank=True, default="") # TODO: change to vault
+    personal_access_token = models.CharField(max_length=255, blank=True, default="")  # TODO: change to vault
     # or: ci_job_token = models.CharField(...), oauth_app_id, oauth_secret, и т.п.
 
     def _host(self, scm: RepositoryInfo) -> str:
@@ -102,6 +117,7 @@ class ScmGitlabBinding(models.Model):
         # GitLab HTTPS clone with PAT:
         # https://oauth2:<PAT>@gitlab.com/owner/repo.git
         return f"{self._host(scm).replace('https://', 'https://oauth2:' + token + '@')}/{scm.repo_full}.git"
+
 
 class PullRequest(models.Model):
     project_version = models.ForeignKey(
@@ -116,10 +132,10 @@ class PullRequest(models.Model):
         related_name="pull_requests",
     )
 
-    pr_number  = models.PositiveIntegerField()
+    pr_number = models.PositiveIntegerField()
 
-    base_ref   = models.CharField(max_length=255, blank=True)
-    head_ref   = models.CharField(max_length=255, blank=True)
+    base_ref = models.CharField(max_length=255, blank=True)
+    head_ref = models.CharField(max_length=255, blank=True)
     is_from_fork = models.BooleanField(default=False)
 
     created = models.DateTimeField(auto_now_add=True)
@@ -139,6 +155,7 @@ class PullRequest(models.Model):
     def __str__(self):
         return f"{self.repository.repo_full}#{self.pr_number}->PV:{self.project_version_id}"
 
+
 class AISTStatus(models.TextChoices):
     SAST_LAUNCHED = "SAST_LAUNCHED", "Launched"
     UPLOADING_RESULTS = "UPLOADING_RESULTS", "Uploading Results"
@@ -148,6 +165,7 @@ class AISTStatus(models.TextChoices):
     PUSH_TO_AI = "PUSH_TO_AI", "Push to AI"
     WAITING_RESULT_FROM_AI = "WAITING_RESULT_FROM_AI", "Waiting Result From AI"
     FINISHED = "FINISHED", "Finished"
+
 
 class AISTProject(models.Model):
     created = models.DateTimeField(default=timezone.now, editable=False)
@@ -169,13 +187,15 @@ class AISTProject(models.Model):
     def __str__(self) -> str:
         return self.product.name
 
+
 class VersionType(models.TextChoices):
     GIT_HASH = "GIT_HASH", "Git commit/hash"
     FILE_HASH = "FILE_HASH", "File hash (uploaded archive)"
 
+
 class AISTProjectVersion(models.Model):
     project = models.ForeignKey(
-        AISTProject, on_delete=models.CASCADE, related_name="versions"
+        AISTProject, on_delete=models.CASCADE, related_name="versions",
     )
     version = models.CharField(max_length=64, db_index=True)
     description = models.TextField(blank=True)
@@ -193,51 +213,22 @@ class AISTProjectVersion(models.Model):
     def _upload_to(self, filename: str) -> str:
         return f"aist_versions/{self.project_id}/{timezone.now():%Y/%m/%d}/{filename}"
 
-    source_archive = models.FileField(upload_to=_upload_to, null=True, blank=True)
+    source_archive = models.FileField(upload_to=_upload_to, null=True, blank=True)  # noqa: DJ012
     source_archive_sha256 = models.CharField(max_length=64, blank=True, null=True, default="")
 
-    class Meta:
+    class Meta:  # noqa: DJ012
         constraints = [
             models.UniqueConstraint(
                 fields=["project", "version"],
                 name="uniq_project_version_per_project",
-            )
+            ),
         ]
         ordering = ["-created"]
 
-    def __str__(self):
+    def __str__(self):  # noqa: DJ012
         return f"{self.project_id}:{self.version}"
 
-    def as_dict(self):
-        return dict(
-            id=self.pk,
-            version=self.version,
-            type=str(self.version_type),
-            extracted_root=self.get_extracted_root(),
-        )
-
-    def clean(self):
-        from django.core.exceptions import ValidationError
-        if self.version_type == VersionType.FILE_HASH:
-            if not self.source_archive:
-                raise ValidationError("For FILE_HASH version type, source_archive is required.")
-            v = (self.version or "").strip()
-            if v:
-                exists = AISTProjectVersion.objects.filter(
-                    project=self.project, version=v
-                ).exclude(pk=self.pk).exists()
-                if exists:
-                    raise ValidationError({"version": "This version already exists for the selected project."})
-
-
-    def _compute_file_sha256(self) -> str:
-        h = hashlib.sha256()
-        # self.source_archive.file может быть уже открытым file-like
-        for chunk in self.source_archive.chunks():
-            h.update(chunk)
-        return h.hexdigest()
-
-    def save(self, *args, **kwargs):
+    def save(self, *args, **kwargs):  # noqa: DJ012
         if self.version_type == VersionType.FILE_HASH and not self.version:
             if self.source_archive:
                 sha = self._compute_file_sha256()
@@ -245,6 +236,32 @@ class AISTProjectVersion(models.Model):
                 self.version = sha
 
         super().save(*args, **kwargs)
+
+    def clean(self):
+        if self.version_type == VersionType.FILE_HASH:
+            if not self.source_archive:
+                raise ValidationError(ERR_FILEHASH_REQUIRES_SOURCE)
+            v = (self.version or "").strip()
+            if v:
+                exists = AISTProjectVersion.objects.filter(
+                    project=self.project, version=v,
+                ).exclude(pk=self.pk).exists()
+                if exists:
+                    raise ValidationError({"version": ERR_VERSION_ALREADY_EXISTS})
+
+    def as_dict(self):
+        return {
+            "id": self.pk,
+            "version": self.version,
+            "type": str(self.version_type),
+            "extracted_root": self.get_extracted_root(),
+        }
+
+    def _compute_file_sha256(self) -> str:
+        h = hashlib.sha256()
+        for chunk in self.source_archive.chunks():
+            h.update(chunk)
+        return h.hexdigest()
 
     def get_extracted_root(self) -> Path:
         """
@@ -267,7 +284,7 @@ class AISTProjectVersion(models.Model):
             return True
         return txt != (self.source_archive_sha256 or "")
 
-    def ensure_extracted(self) -> Path:
+    def ensure_extracted(self) -> Path | None:
         """
         Ensure the uploaded archive is extracted under `get_extracted_root()`.
 
@@ -276,7 +293,11 @@ class AISTProjectVersion(models.Model):
         - Post-process: if extraction yields exactly one top-level directory, flatten it.
         - Writes `.extracted.ok` containing the archive SHA so we can detect changes.
         """
-        from dojo.aist.utils import _safe_extract_zip_member, _safe_extract_tar_member,_flatten_single_root_directory
+        from dojo.aist.utils import (  # noqa: PLC0415
+            _flatten_single_root_directory,
+            _safe_extract_tar_member,
+            _safe_extract_zip_member,
+        )
 
         root = self.get_extracted_root()
         root.mkdir(parents=True, exist_ok=True)
@@ -293,13 +314,10 @@ class AISTProjectVersion(models.Model):
             if p.is_dir():
                 shutil.rmtree(p, ignore_errors=True)
             else:
-                try:
+                with suppress(OSError):
                     p.unlink()
-                except OSError:
-                    pass
 
         # Read the file via storage (works with non-local backends too)
-        from django.core.files.storage import default_storage
         with default_storage.open(self.source_archive.name, "rb") as f:
             data = f.read()
         bio = io.BytesIO(data)
@@ -317,7 +335,7 @@ class AISTProjectVersion(models.Model):
                     for member in tf.getmembers():
                         _safe_extract_tar_member(tf, member, root)
             except tarfile.ReadError:
-                raise ValueError("Unsupported archive format: not a ZIP or TAR.*")
+                raise ValueError(ERR_UNSUPPORTED_ARCHIVE)
 
         # Flatten "<archive_name>/" level if it is the only top-level entry
         _flatten_single_root_directory(root)
@@ -326,6 +344,7 @@ class AISTProjectVersion(models.Model):
         (root / ".extracted.ok").write_text(self.source_archive_sha256 or "", encoding="utf-8")
 
         return root
+
 
 class AISTPipeline(models.Model):
     created = models.DateTimeField(default=timezone.now, editable=False)
@@ -373,10 +392,13 @@ class AISTPipeline(models.Model):
         self.logs = txt + line
         self.save(update_fields=["logs", "updated"])
 
+
 class TestDeduplicationProgress(models.Model):
+
     """Deduplication progress on one Test."""
+
     test = models.OneToOneField(
-        Test, on_delete=models.CASCADE, related_name="dedupe_progress"
+        Test, on_delete=models.CASCADE, related_name="dedupe_progress",
     )
     pending_tasks = models.PositiveIntegerField(default=0)
     started_at = models.DateTimeField(null=True, blank=True)
@@ -411,9 +433,9 @@ class TestDeduplicationProgress(models.Model):
                 ~models.Exists(
                     ProcessedFinding.objects.filter(
                         test_id=group.test_id,
-                        finding_id=models.OuterRef('id'),
-                    )
-                )
+                        finding_id=models.OuterRef("id"),
+                    ),
+                ),
             )
 
             pending = pending_qs.count()
@@ -431,11 +453,14 @@ class TestDeduplicationProgress(models.Model):
             if fields_to_update:
                 group.save(update_fields=fields_to_update)
             Test.objects.filter(id=group.test_id).update(
-                deduplication_complete=is_complete
+                deduplication_complete=is_complete,
             )
 
+
 class ProcessedFinding(models.Model):
+
     """Set which findings are considered to avoid double decrement"""
+
     test = models.ForeignKey(Test, on_delete=models.CASCADE)
     finding = models.ForeignKey(Finding, null=True, blank=True,
                                 on_delete=models.SET_NULL)
@@ -453,19 +478,19 @@ class ProcessedFinding(models.Model):
             models.Index(fields=["test", "finding"]),
         ]
 
-class AISTAIResponse(models.Model):
 
+class AISTAIResponse(models.Model):
     pipeline = models.ForeignKey(
-        'AISTPipeline',
+        "AISTPipeline",
         on_delete=models.CASCADE,
-        related_name='ai_responses',
+        related_name="ai_responses",
         db_index=True,
     )
     created = models.DateTimeField(auto_now_add=True, db_index=True)
     payload = models.JSONField(default=dict, blank=True)
 
     class Meta:
-        ordering = ['-created']  # last one is on top
+        ordering = ["-created"]  # last one is on top
 
     def __str__(self):
         return f"AIResponse[{self.pipeline_id}] @ {self.created:%Y-%m-%d %H:%M:%S}"

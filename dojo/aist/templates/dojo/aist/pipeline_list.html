@@ -70,7 +70,7 @@
   <thead class="table-light">…</thead>
   <tbody>
     {% for r in items %}
-      <tr class="table-row-link" data-href="{% url 'dojo_aist:pipeline_detail' id=r.id %}" style="cursor:pointer;">
+      <tr class="table-row-link" data-href="{% url 'dojo_aist:pipeline_detail' pipeline_id=r.id %}" style="cursor:pointer;">
         <td class="text-monospace">#{{ r.id }}</td>
         <td>{{ r.project_name }}</td>
         <td>{{ r.updated|date:"Y-m-d H:i" }}</td>

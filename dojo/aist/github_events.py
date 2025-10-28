@@ -1,17 +1,19 @@
 # your_app/events.py
 import logging
-from django_github_app.routing import GitHubRouter
-from django_github_app.models import Installation
+
 from asgiref.sync import sync_to_async
-from github import Github, Auth
-from dojo.models import Product, Product_Type
-from dojo.aist.tasks import run_sast_pipeline
+from django_github_app.routing import GitHubRouter
+
 from dojo.aist.models import AISTProject, AISTProjectVersion, PullRequest, RepositoryInfo, ScmGithubBinding, ScmType
-from dojo.aist.utils import has_unfinished_pipeline, create_pipeline_object
+from dojo.aist.tasks import run_sast_pipeline
+from dojo.aist.utils import create_pipeline_object, has_unfinished_pipeline
+from dojo.models import Product, Product_Type
+
 from .utils import _load_analyzers_config
 
 gh = GitHubRouter()
 logger = logging.getLogger("dojo.aist")
+
 
 @gh.event("installation", action="created")
 @gh.event("installation_repositories", action="added")
@@ -33,7 +35,7 @@ async def on_install_created_or_repos_added(event, gh, **_):
 
     cfg = _load_analyzers_config()
     product_type, _ = await sync_to_async(Product_Type.objects.get_or_create)(
-        name="Github Imported"
+        name="Github Imported",
     )
     if not cfg:
         logger.error("Could not load analyzers config.")
@@ -51,8 +53,8 @@ async def on_install_created_or_repos_added(event, gh, **_):
             html_url = (repo.get("html_url") or "https://github.com").rstrip("/")
             base_url = html_url.split("/" + owner + "/")[0]  # supports GH Enterprise host
             logger.info(f"Fetched metadata for {repo_full}: languages={langs}, description={desc!r}")
-        except Exception as e:
-            logger.exception(f"Failed to fetch data for {repo_full}: {e}")
+        except Exception:
+            logger.exception("Failed to fetch data for %s", repo_full)
             continue
 
         # 4) Create or update local Product and AISTProject
@@ -62,7 +64,7 @@ async def on_install_created_or_repos_added(event, gh, **_):
         )
         logger.info(("Created Product: " if created_product else "Product exists: ") + repo_full)
 
-        repo_info, created_repo = await sync_to_async(RepositoryInfo.objects.get_or_create)(
+        repo_info, _created_repo = await sync_to_async(RepositoryInfo.objects.get_or_create)(
             type=ScmType.GITHUB,
             repo_owner=owner,
             repo_name=name,
@@ -70,11 +72,11 @@ async def on_install_created_or_repos_added(event, gh, **_):
                 "base_url": base_url,
                 "repo_url": f"{base_url}/{owner}/{name}.git" if hasattr(RepositoryInfo, "repo_url") else "",
             } if "repo_url" in [f.name for f in RepositoryInfo._meta.fields] else {
-                "base_url": base_url
+                "base_url": base_url,
             },
         )
 
-        aist_project, created_project = await sync_to_async(AISTProject.objects.get_or_create)(
+        _aist_project, created_project = await sync_to_async(AISTProject.objects.get_or_create)(
             product=product,
             defaults={
                 "supported_languages": langs,
@@ -86,20 +88,20 @@ async def on_install_created_or_repos_added(event, gh, **_):
         )
         logger.info(("Created AISTProject for " if created_project else "AISTProject exists for ") + repo_full)
 
-        def _ensure_binding():
+        def _ensure_binding(scm=repo_info, installation_id=inst_id):
             binding, created = ScmGithubBinding.objects.get_or_create(
-                scm=repo_info,
-                defaults={"installation_id": inst_id},
+                scm=scm,
+                defaults={"installation_id": installation_id},
             )
             updated = False
-            if binding.installation_id != inst_id:
-                binding.installation_id = inst_id
+            if binding.installation_id != installation_id:
+                binding.installation_id = installation_id
                 updated = True
             if updated:
                 binding.save(update_fields=["installation_id"])
             return binding, created, updated
 
-        binding, created_bind, updated_bind = await sync_to_async(_ensure_binding)()
+        _binding, created_bind, updated_bind = await sync_to_async(_ensure_binding)()
         if created_bind:
             logger.info(f"Created ScmGithubBinding for {repo_full} (installation_id={inst_id})")
         elif updated_bind:
@@ -108,6 +110,7 @@ async def on_install_created_or_repos_added(event, gh, **_):
             logger.info(f"Verified ScmGithubBinding for {repo_full} (installation_id={inst_id})")
 
     logger.info(f"Finished processing {len(repos_added)} repositories for installation {inst_id}.")
+
 
 @gh.event("pull_request", action="opened")
 @gh.event("pull_request", action="synchronize")
@@ -135,7 +138,7 @@ async def on_pr_event(event, gh, **_):
 
     logger.info(
         f"PR metadata: repo={repo_full}, pr_number={pr_number}, "
-        f"head_sha={head_sha[:7]}, head_ref={head_ref}, base_ref={base_ref}, from_fork={is_from_fork}"
+        f"head_sha={head_sha[:7]}, head_ref={head_ref}, base_ref={base_ref}, from_fork={is_from_fork}",
     )
 
     # ORM (async-safe)
@@ -165,11 +168,11 @@ async def on_pr_event(event, gh, **_):
 
     try:
         repo_info = await sync_to_async(RepositoryInfo.objects.get)(
-        type=ScmType.GITHUB,
-        repo_owner=owner,
-        repo_name=name,
-        defaults={"base_url": base_url},
-    )
+            type=ScmType.GITHUB,
+            repo_owner=owner,
+            repo_name=name,
+            defaults={"base_url": base_url},
+        )
         aist_project = await sync_to_async(AISTProject.objects.get)(product=product)
     except RepositoryInfo.DoesNotExist:
         logger.error(f"RepositoryInfo not found for repository: {repo_full}")
@@ -199,5 +202,5 @@ async def on_pr_event(event, gh, **_):
     await sync_to_async(pipeline.save)(update_fields=["run_task_id"])
 
     logger.info(
-        f"Pipeline enqueued for PR #{pr_number}: pipeline_id={pipeline.id}, task_id={async_result.id}"
+        f"Pipeline enqueued for PR #{pr_number}: pipeline_id={pipeline.id}, task_id={async_result.id}",
     )

@@ -7,6 +7,10 @@ on:
       - bugfix
       - release/**
       - hotfix/**
+      - aist
+  push:
+    branches:
+      - aist
 
 jobs:
   lint:
@@ -18,6 +22,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1
@@ -115,7 +120,9 @@ jobs:
         with:
           repository: ${{ github.event.pull_request.head.repo.full_name }}
           ref: ${{ github.event.pull_request.head.ref }}
-  
+          fetch-depth: 0
+          submodules: recursive
+
       - name: Update values in HELM chart
         if: startsWith(github.head_ref, 'renovate/') || startsWith(github.head_ref, 'dependabot/')
         run: |
@@ -153,6 +160,10 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
+        with:
+          persist-credentials: false
+          fetch-depth: 0
+          submodules: recursive
 
       - name: Generate values schema json
         uses: losisin/helm-values-schema-json-action@f3517c55537e26953c8a11be7549ea908990130d # v2.3.2
@@ -176,6 +187,7 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
+          submodules: recursive
 
       - name: Set up Helm
         uses: azure/setup-helm@1a275c3b69536ee54be43f2070a358922e12c8d4 # v4.3.1

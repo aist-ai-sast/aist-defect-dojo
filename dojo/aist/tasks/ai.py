@@ -1,12 +1,16 @@
 import json
+from collections.abc import Iterable
+from typing import Any
+
 import requests
 from celery import shared_task
-from typing import Any, Dict, Iterable
-from dojo.aist.logging_transport import _install_db_logging
 from django.conf import settings
 from django.db import transaction
+
+from dojo.aist.logging_transport import _install_db_logging
 from dojo.aist.models import AISTPipeline, AISTStatus
 from dojo.aist.utils import build_callback_url
+
 
 def _csv(items: Iterable[Any]) -> str:
     seen = set()
@@ -19,6 +23,7 @@ def _csv(items: Iterable[Any]) -> str:
             seen.add(s)
             result.append(s)
     return ", ".join(result)
+
 
 @shared_task(bind=True)
 def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="INFO") -> None:
@@ -54,7 +59,7 @@ def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="
             tools = _csv(filters["analyzers"] or [])
             callback_url = build_callback_url(pipeline_id)
 
-            payload: Dict[str, Any] = {
+            payload: dict[str, Any] = {
                 "project": {
                     "name": project_name,
                     "description": getattr(project, "description", "") or "",
@@ -73,8 +78,8 @@ def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="
             log.info("Sending AI triage request: url=%s payload=%s", webhook_url, payload)
             resp = requests.post(webhook_url, data=body_bytes, headers=headers, timeout=webhook_timeout)
             resp.raise_for_status()
-        except requests.RequestException as exc:
-            log.error("AI triage POST failed: %s", exc, exc_info=True)
+        except requests.RequestException:
+            log.exception("AI triage POST failed")
             pipeline.status = AISTStatus.FINISHED
             pipeline.save(update_fields=["status", "updated"])
             return
@@ -83,5 +88,3 @@ def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="
         pipeline.save(update_fields=["status", "updated"])
 
         log.info("AI triage request accepted: status=%s body=%s", resp.status_code, resp.text[:500])
-
-

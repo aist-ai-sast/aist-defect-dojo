@@ -1,4 +1,4 @@
-name: Daily PR Review Reminder
+name: DD Daily PR Review Reminder
 
 on:
   schedule:

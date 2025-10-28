@@ -1,0 +1,58 @@
+services:
+  nginx:
+    environment:
+      AIST_PIPELINE_CODE_PATH: /app/sast-pipeline
+
+  uwsgi:
+    environment:
+      AIST_PIPELINE_CODE_PATH: /app/sast-pipeline
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-}"
+      GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
+      CLIENT_ID: "${CLIENT_ID:-}"
+      NAME: "${NAME:-}"
+      WEBHOOK_TYPE: "${WEBHOOK_TYPE:-}"
+      PRIVATE_KEY: "${PRIVATE_KEY:-}"
+    volumes:
+      - type: bind
+        source: ./docker/extra_settings
+        target: /app/docker/extra_settings
+      - ./sast-combinator/tools/sast-pipeline:/app/sast-pipeline
+
+  celerybeat:
+    environment:
+      AIST_PIPELINE_CODE_PATH: /app/sast-pipeline
+    volumes:
+      - type: bind
+        source: ./docker/extra_settings
+        target: /app/docker/extra_settings
+      - ./sast-combinator/tools/sast-pipeline:/app/sast-pipeline
+
+  celeryworker:
+    environment:
+      AIST_PIPELINE_CODE_PATH: /app/sast-pipeline
+      C_FORCE_ROOT: '1'
+      DOCKER_HOST: unix:///var/run/docker.sock
+      DOCKER_BUILDKIT: 1
+    user: 0:0
+    volumes:
+      - type: bind
+        source: ./docker/extra_settings
+        target: /app/docker/extra_settings
+      - ./sast-combinator/tools/sast-pipeline:/app/sast-pipeline
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /tmp/aist/:/tmp/aist/
+
+  initializer:
+    environment:
+      AIST_PIPELINE_CODE_PATH: /app/sast-pipeline
+      WEBHOOK_SECRET: "${WEBHOOK_SECRET:-}"
+      GITHUB_APP_ID: "${GITHUB_APP_ID:-}"
+      CLIENT_ID: "${CLIENT_ID:-}"
+      NAME: "${NAME:-}"
+      WEBHOOK_TYPE: "${WEBHOOK_TYPE:-}"
+      PRIVATE_KEY: "${PRIVATE_KEY:-}"
+    volumes:
+      - type: bind
+        source: ./docker/extra_settings
+        target: /app/docker/extra_settings
+      - ./sast-combinator/tools/sast-pipeline:/app/sast-pipeline

@@ -213,7 +213,7 @@
                     {% if history_items %}
                         <div class="list-group list-group-flush mt-2">
                             {% for run in history_items %}
-                                <a href="{% url 'dojo_aist:pipeline_detail' id=run.id %}"
+                                <a href="{% url 'dojo_aist:pipeline_detail' pipeline_id=run.id %}"
                                    class="list-group-item list-group-item-action">
                                     <div class="d-flex justify-content-between">
                                         <div class="me-2">

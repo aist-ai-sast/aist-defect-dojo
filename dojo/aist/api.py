@@ -1,30 +1,35 @@
 # dojo/aist/api.py
 from __future__ import annotations
 
-import uuid
-from typing import Any
+from mimetypes import guess_type
+from pathlib import Path
 
 from django.db import transaction
-from django.shortcuts import get_object_or_404
-from rest_framework import serializers, status, generics
-from rest_framework.response import Response
-from pathlib import Path
 from django.http import FileResponse, Http404
-from mimetypes import guess_type
+from django.shortcuts import get_object_or_404
 from django.utils.encoding import iri_to_uri
-from rest_framework.views import APIView
-from rest_framework.permissions import IsAuthenticated
-
-from drf_spectacular.utils import extend_schema, OpenApiResponse, OpenApiExample, OpenApiParameter
-
-from .models import AISTPipeline, AISTProject, AISTStatus, AISTProjectVersion
-from dojo.aist.tasks import run_sast_pipeline
-from .utils import create_pipeline_object
 from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import OpenApiExample, OpenApiParameter, OpenApiResponse, extend_schema
+from rest_framework import generics, serializers, status
+from rest_framework.permissions import IsAuthenticated
+from rest_framework.response import Response
+from rest_framework.views import APIView
+
+from dojo.aist.tasks import run_sast_pipeline
+
+from .models import AISTPipeline, AISTProject, AISTProjectVersion, AISTStatus
+from .utils import create_pipeline_object
+
+# ----------------------------
+# Module-level error messages
+# ----------------------------
+ERR_FILE_NOT_FOUND_IN_ARCHIVE = "File not found in version archive"
 
 
 class PipelineStartRequestSerializer(serializers.Serializer):
+
     """Minimal payload to start a pipeline."""
+
     aistproject_id = serializers.IntegerField(required=True)
     project_version = serializers.CharField(required=True)
     create_new_version_if_not_exist = serializers.BooleanField(required=True)
@@ -43,7 +48,9 @@ class PipelineResponseSerializer(serializers.Serializer):
 
 
 class PipelineStartAPI(APIView):
+
     """Start a new AIST pipeline."""
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -58,7 +65,7 @@ class PipelineStartAPI(APIView):
                 "Basic start",
                 value={"aistproject_id": 42, "project_version": "master", "create_new_version_if_not_exist": True},
                 request_only=True,
-            )
+            ),
         ],
         tags=["aist"],
         summary="Start pipeline",
@@ -92,10 +99,11 @@ class PipelineStartAPI(APIView):
         out = PipelineStartResponseSerializer({"id": p.id})
         return Response(out.data, status=status.HTTP_201_CREATED)
 
+
 class PipelineListAPI(generics.ListAPIView):
-    """
-    Paginated list of pipelines with simple filtering.
-    """
+
+    """Paginated list of pipelines with simple filtering."""
+
     permission_classes = [IsAuthenticated]
     serializer_class = PipelineResponseSerializer
 
@@ -150,8 +158,11 @@ class PipelineListAPI(generics.ListAPIView):
 
         return qs
 
+
 class PipelineAPI(APIView):
+
     """Retrieve or delete a pipeline by id."""
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -160,8 +171,8 @@ class PipelineAPI(APIView):
         summary="Get pipeline status",
         description="Returns pipeline status and AI response.",
     )
-    def get(self, request, id: str, *args, **kwargs) -> Response:
-        p = get_object_or_404(AISTPipeline, id=id)
+    def get(self, request, pipeline_id: str, *args, **kwargs) -> Response:
+        p = get_object_or_404(AISTPipeline, id=pipeline_id)
         data = {
             "id": p.id,
             "status": p.status,
@@ -180,12 +191,13 @@ class PipelineAPI(APIView):
         summary="Delete pipeline",
         description="Deletes the specified AISTPipeline by id.",
     )
-    def delete(self, request, id: str, *args, **kwargs) -> Response:
-        p = get_object_or_404(AISTPipeline, id=id)
+    def delete(self, request, pipeline_id: str, *args, **kwargs) -> Response:
+        p = get_object_or_404(AISTPipeline, id=pipeline_id)
         if p.status != AISTStatus.FINISHED:
             return Response(status=status.HTTP_400_BAD_REQUEST)
         p.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
+
 
 class AISTProjectSerializer(serializers.ModelSerializer):
     product_name = serializers.CharField(source="product.name", read_only=True)
@@ -196,9 +208,9 @@ class AISTProjectSerializer(serializers.ModelSerializer):
 
 
 class AISTProjectListAPI(generics.ListAPIView):
-    """
-    List all current AISTProjects.
-    """
+
+    """List all current AISTProjects."""
+
     queryset = AISTProject.objects.select_related("product").all().order_by("created")
     serializer_class = AISTProjectSerializer
     permission_classes = [IsAuthenticated]
@@ -206,10 +218,11 @@ class AISTProjectListAPI(generics.ListAPIView):
     @extend_schema(
         tags=["aist"],
         summary="List all AISTProjects",
-        description="Returns all existing AISTProject records with their metadata."
+        description="Returns all existing AISTProject records with their metadata.",
     )
     def get(self, request, *args, **kwargs):
         return super().get(request, *args, **kwargs)
+
 
 class AISTProjectDetailAPI(generics.RetrieveDestroyAPIView):
     queryset = AISTProject.objects.select_related("product").all()
@@ -223,8 +236,8 @@ class AISTProjectDetailAPI(generics.RetrieveDestroyAPIView):
         summary="Delete AIST project",
         description="Deletes the specified AISTProject by id.",
     )
-    def delete(self, request, id: int, *args, **kwargs) -> Response:
-        p = get_object_or_404(AISTProject, id=id)
+    def delete(self, request, project_id: int, *args, **kwargs) -> Response:
+        p = get_object_or_404(AISTProject, id=project_id)
         p.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -234,16 +247,19 @@ class AISTProjectDetailAPI(generics.RetrieveDestroyAPIView):
         summary="Get AIST project",
         description="Get the specified AISTProject by id.",
     )
-    def get(self, request, id: int, *args, **kwargs) -> Response:
-        project = get_object_or_404(AISTProject, id=id)
+    def get(self, request, project_id: int, *args, **kwargs) -> Response:
+        project = get_object_or_404(AISTProject, id=project_id)
         serializer = AISTProjectSerializer(project)
         return Response(serializer.data, status=status.HTTP_200_OK)
 
+
 class ProjectVersionFileBlobAPI(APIView):
+
     """
     GET /projects_version/<id>/files/blob/<path:subpath>
     Returns the specified file from project version.
     """
+
     permission_classes = [IsAuthenticated]
 
     @extend_schema(
@@ -277,27 +293,26 @@ class ProjectVersionFileBlobAPI(APIView):
             404: OpenApiResponse(description="Project version or file not found"),
         },
     )
-
-    def get(self, request, id: int, subpath: str, *args, **kwargs):
-        pv = get_object_or_404(AISTProjectVersion, pk=id)
+    def get(self, request, project_version_id: int, subpath: str, *args, **kwargs):
+        pv = get_object_or_404(AISTProjectVersion, pk=project_version_id)
 
         # Generate one-time extraction
         root = pv.ensure_extracted()
 
         if root is None:
-            raise Http404("File not found in version archive")
-
+            raise Http404(ERR_FILE_NOT_FOUND_IN_ARCHIVE)
 
         safe_rel = subpath.lstrip("/").replace("\\", "/")
         file_path = (root / safe_rel).resolve()
 
         if not file_path.exists() or not file_path.is_file():
-            raise Http404("File not found in version archive")
-
+            raise Http404(ERR_FILE_NOT_FOUND_IN_ARCHIVE)
 
         ctype, _ = guess_type(str(file_path))
         ctype = ctype or "application/octet-stream"
 
-        resp = FileResponse(open(file_path, "rb"), content_type=ctype)
+        # FileResponse needs an open file-like object that remains open until the response is closed.
+        # Using a context manager would close it too early, so we intentionally avoid it here.
+        resp = FileResponse(Path(file_path).open("rb"), content_type=ctype)  # noqa: SIM115
         resp["Content-Disposition"] = f'inline; filename="{iri_to_uri(file_path.name)}"'
         return resp

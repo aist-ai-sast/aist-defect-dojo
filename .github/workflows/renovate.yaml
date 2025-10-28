@@ -1,4 +1,4 @@
-name: "Renovate validation"
+name: "DD Renovate validation"
 on:
   workflow_dispatch:
   pull_request:

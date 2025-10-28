@@ -1,4 +1,4 @@
-name: Fetch OpenAPI Specifications
+name: DD Fetch OpenAPI Specifications
 
 on:
   workflow_call:

@@ -1,5 +1,5 @@
 ---
-name: "release-X: Release helm chart"
+name: "DD release-X: Release helm chart"
 
 env:
   GIT_USERNAME: "DefectDojo release bot"
@@ -39,6 +39,7 @@ on:
 
 jobs:
   release-chart:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     steps:
 

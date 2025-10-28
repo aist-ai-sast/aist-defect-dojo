@@ -1,10 +1,9 @@
 import logging
 
 from django.conf import settings
-from django.conf.urls import include
 from django.contrib import admin
 from django.http import HttpResponse
-from django.urls import re_path, include, path
+from django.urls import include, path, re_path
 from drf_spectacular.views import SpectacularSwaggerView
 from rest_framework.authtoken import views as tokenviews
 from rest_framework.routers import DefaultRouter
@@ -224,8 +223,8 @@ api_v2_urls = [
     #  Django Rest Framework API v2
     re_path(r"^{}api/v2/".format(get_system_setting("url_prefix")), include(v2_api.urls)),
     re_path(r"^{}api/v2/user_profile/".format(get_system_setting("url_prefix")), UserProfileView.as_view(), name="user_profile"),
-    re_path(r"^{}api/v2/aist/".format(get_system_setting("url_prefix")), include("dojo.aist.api_urls", 'dojo_aist_api'),
-            name='aist'),
+    re_path(r"^{}api/v2/aist/".format(get_system_setting("url_prefix")), include("dojo.aist.api_urls", "dojo_aist_api"),
+            name="aist"),
 ]
 
 if hasattr(settings, "API_TOKENS_ENABLED") and hasattr(settings, "API_TOKEN_AUTH_ENDPOINT_ENABLED"):
@@ -284,10 +283,10 @@ if hasattr(settings, "EXTRA_URL_PATTERNS"):
 # Remove any other endpoints that drf-spectacular is guessing should be in the swagger
 def drf_spectacular_preprocessing_filter_spec(endpoints):
     filtered = []
-    for (path, path_regex, method, callback) in endpoints:
+    for (url, path_regex, method, callback) in endpoints:
         # Remove all but DRF API endpoints
-        if path.startswith("/api/v2/"):
-            filtered.append((path, path_regex, method, callback))
+        if url.startswith("/api/v2/"):
+            filtered.append((url, path_regex, method, callback))
     return filtered
 
 
@@ -297,5 +296,5 @@ if hasattr(settings, "DJANGO_DEBUG_TOOLBAR_ENABLED"):
         urlpatterns += debug_toolbar_urls()
 
 urlpatterns += [
-    path('aist/', include(('dojo.aist.urls', 'dojo.aist'), namespace='dojo_aist')),
+    path("aist/", include(("dojo.aist.urls", "dojo.aist"), namespace="dojo_aist")),
 ]

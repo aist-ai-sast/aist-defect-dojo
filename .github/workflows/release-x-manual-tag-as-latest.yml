@@ -1,4 +1,4 @@
-name: "release-X: Tag docker images with latest tag"
+name: "DD release-X: Tag docker images with latest tag"
 
 env:
   GIT_USERNAME: "DefectDojo release bot"
@@ -25,6 +25,7 @@ on:
 
 jobs:
   merge-digests:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     strategy:
         fail-fast: false

@@ -1,25 +1,34 @@
 # dojo/aist/logging_transport.py
 
-import weakref
+import json
+import logging
+import time
+from contextlib import suppress
+from functools import lru_cache
+from logging import LoggerAdapter
+
+import redis
+from django.conf import settings
 from django.db import transaction
 
 from .models import AISTPipeline
-import logging, json, time, redis
-from functools import lru_cache
-from logging import LoggerAdapter
-from django.conf import settings
 
 REDIS_URL = getattr(settings, "CELERY_BROKER_URL", "redis://127.0.0.1:6379/0")
 PUBSUB_CHANNEL_TPL = "aist:pipeline:{pipeline_id}:logs"
 STREAM_KEY = "aist:logs"
 BACKLOG_COUNT = 200
 
+_logger = logging.getLogger(__name__)
+
+
 def get_redis():
     return redis.Redis.from_url(REDIS_URL, decode_responses=True)
 
 
 class StaticPipelineIdFilter(logging.Filter):
+
     """Inject fixed pipeline_id in every record if missing."""
+
     def __init__(self, pipeline_id: str) -> None:
         super().__init__()
         self.pipeline_id = str(pipeline_id)
@@ -29,8 +38,11 @@ class StaticPipelineIdFilter(logging.Filter):
             record.pipeline_id = self.pipeline_id
         return True
 
+
 class RedisLogHandler(logging.Handler):
+
     """Publish log records to Redis Pub/Sub and Stream."""
+
     def emit(self, record: logging.LogRecord) -> None:
         try:
             pid = getattr(record, "pipeline_id", None)
@@ -44,15 +56,20 @@ class RedisLogHandler(logging.Handler):
             r = get_redis()
             if pid:
                 r.publish(PUBSUB_CHANNEL_TPL.format(pipeline_id=pid), js)
-            r.xadd(STREAM_KEY, {
-                "pipeline_id": pid or "",
-                "level": payload["level"],
-                "message": payload["message"],
-                "ts": str(payload["ts"]),
-            }, maxlen=100_000, approximate=True)
+            r.xadd(
+                STREAM_KEY,
+                {
+                    "pipeline_id": pid or "",
+                    "level": payload["level"],
+                    "message": payload["message"],
+                    "ts": str(payload["ts"]),
+                },
+                maxlen=100_000,
+                approximate=True,
+            )
         except Exception:
-            # never break main flow on logging error
-            pass
+            _logger.exception("Failed to emit log record to Redis (pipeline_id=%s)", getattr(record, "pipeline_id", None))
+
 
 def _attach_pipeline_filters(pipeline_id: str):
     """
@@ -61,19 +78,19 @@ def _attach_pipeline_filters(pipeline_id: str):
     """
     f = StaticPipelineIdFilter(pipeline_id)
     aist_log = logging.getLogger("dojo.aist")
-    pkg_log  = logging.getLogger("pipeline")
+    pkg_log = logging.getLogger("pipeline")
 
     aist_log.addFilter(f)
     pkg_log.addFilter(f)
 
     def detach() -> None:
-        # try to detach
-        try: aist_log.removeFilter(f)
-        except Exception: pass
-        try: pkg_log.removeFilter(f)
-        except Exception: pass
+        with suppress(Exception):
+            aist_log.removeFilter(f)
+        with suppress(Exception):
+            pkg_log.removeFilter(f)
 
     return detach
+
 
 @lru_cache(maxsize=1)
 def install_global_redis_log_handler(level=logging.INFO) -> None:
@@ -95,6 +112,7 @@ def install_global_redis_log_handler(level=logging.INFO) -> None:
         handler.setLevel(level)
         handler.setFormatter(fmt)
         package_log.addHandler(handler)
+
 
 @lru_cache(maxsize=1024)
 def get_pipeline_logger(pipeline_id: str) -> LoggerAdapter:
@@ -132,15 +150,18 @@ class PipelineScopedLogger:
     def __del__(self):
         self.close()
 
-# TODO: change to working Reddis solution, for now it's not working
+# TODO: change to working Redis solution, for now it's not working
+
 
 class DatabaseLogHandler(logging.Handler):
+
     """
     Logging handler that writes log records into the AISTPipeline.logs field.
 
     This allows anything that logs through Python's logging to be displayed
     in the pipeline UI in near-real-time via the SSE endpoint.
     """
+
     def __init__(self, pipeline_id: str):
         super().__init__()
         self.pipeline_id = pipeline_id
@@ -152,8 +173,8 @@ class DatabaseLogHandler(logging.Handler):
                 p = AISTPipeline.objects.select_for_update().get(id=self.pipeline_id)
                 p.append_log(msg)
         except Exception:
-            # Never break the main flow due to logging issues
-            pass
+            _logger.exception("Failed to write log to DB (pipeline_id=%s)", self.pipeline_id)
+
 
 def _install_db_logging(pipeline_id: str, level=logging.INFO):
     """Connect BD -handler for all required loggers ко всем нужным логгерам (root и 'pipeline')."""

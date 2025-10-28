@@ -1,14 +1,17 @@
-from .pipeline import run_sast_pipeline
-from .enrich import enrich_finding_task, after_upload_enrich_and_watch, report_enrich_done, enrich_finding_batch
-from .dedup import watch_deduplication, reconcile_deduplication
-from .logs import flush_logs_once
 from .ai import push_request_to_ai
+from .dedup import reconcile_deduplication, watch_deduplication
+from .enrich import after_upload_enrich_and_watch, enrich_finding_batch, enrich_finding_task, report_enrich_done
+from .logs import flush_logs_once
+from .pipeline import run_sast_pipeline
 
 __all__ = [
-    "run_sast_pipeline", "after_upload_enrich_and_watch", "report_enrich_done",
+    "after_upload_enrich_and_watch",
+    "enrich_finding_batch",
     "enrich_finding_task",
-    "watch_deduplication", "reconcile_deduplication",
     "flush_logs_once",
     "push_request_to_ai",
-    "enrich_finding_batch"
+    "reconcile_deduplication",
+    "report_enrich_done",
+    "run_sast_pipeline",
+    "watch_deduplication",
 ]

@@ -7,6 +7,9 @@ on:
           type: string
           default: "linux/amd64"
 
+env:
+  COMPOSE_FILES: |
+    -f docker-compose.yml -f docker-compose.override.aist_cd.yml -f docker-compose.override.unit_tests_cicd.yml
 jobs:
   unit_tests:
     name: Rest Framework Unit Tests
@@ -28,6 +31,8 @@ jobs:
         uses: actions/checkout@8e8c483db84b4bee98b60c0593521ed34d9990e8 # v6.0.1
         with:
           persist-credentials: false
+          submodules: recursive
+          fetch-depth: 0
 
       # load docker images from build jobs
       - name: Load images from artifacts
@@ -43,25 +48,21 @@ jobs:
              docker load -i built-docker-image/django-${{ matrix.os }}-${{ env.PLATFORM }}_img
              docker images
 
-      # run tests with docker compose
-      - name: Set unit-test mode
-        run: docker/setEnv.sh unit_tests_cicd
-
       # phased startup so we can use the exit code from unit test container
       - name: Start Postgres and webhook.endpoint
-        run: docker compose up --no-deps -d postgres webhook.endpoint
+        run: docker compose $COMPOSE_FILES up --no-deps -d postgres webhook.endpoint
 
       # no celery or initializer needed for unit tests
       - name: Unit tests
         timeout-minutes: 20
-        run: docker compose up --no-deps --exit-code-from uwsgi uwsgi
+        run: docker compose $COMPOSE_FILES up --no-deps --exit-code-from uwsgi uwsgi
         env:
           DJANGO_VERSION: ${{ matrix.os }}
 
       - name: Logs
         if: failure()
-        run: docker compose logs --tail="2500" uwsgi
+        run: docker compose $COMPOSE_FILES logs --tail="2500" uwsgi
 
       - name: Shutdown
         if: always()
-        run: docker compose down
+        run: docker compose $COMPOSE_FILES down

@@ -1,4 +1,4 @@
-name: "Release-3: PR for merging master into dev"
+name: "DD Release-3: PR for merging master into dev"
 
 env:
   GIT_USERNAME: "DefectDojo release bot"
@@ -17,6 +17,7 @@ on:
 
 jobs:
   create_pr_for_merge_back_into_dev:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     steps:
       - id: Set-GitHub-org
@@ -109,6 +110,7 @@ jobs:
             })
 
   create_pr_for_merge_back_into_bugfix:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     steps:
       - id: Set-GitHub-org

@@ -1,14 +1,16 @@
-from dojo.aist.logging_transport import get_redis, STREAM_KEY
-from celery import shared_task
-from typing import Any, Dict, List, Optional
 from collections import defaultdict
-from dojo.aist.models import AISTPipeline
-from django.db.models.functions import Concat
+
+from celery import shared_task
 from django.db.models import F, Value
+from django.db.models.functions import Concat
+
+from dojo.aist.logging_transport import STREAM_KEY, get_redis
+from dojo.aist.models import AISTPipeline
 
 GROUP = "aistlog"
 
 CONSUMER = "log-flusher"
+
 
 def _ensure_group(r):
     """Create consumer group if it does not exist."""
@@ -17,6 +19,7 @@ def _ensure_group(r):
     except Exception as exc:
         if "BUSYGROUP" not in str(exc):
             raise
+
 
 @shared_task(bind=True, name="dojo.aist.flush_logs_once")
 def flush_logs_once(self, max_read: int = 500) -> int:
@@ -42,8 +45,8 @@ def flush_logs_once(self, max_read: int = 500) -> int:
     # XREADGROUP returns a list of (stream, [(id, fields), ...]) pairs
     entries = response[0][1] if response and response[0][0] == STREAM_KEY else []
     # Group entries by pipeline_id
-    by_pid: Dict[str, List[str]] = defaultdict(list)
-    entry_ids: List[str] = []
+    by_pid: dict[str, list[str]] = defaultdict(list)
+    entry_ids: list[str] = []
 
     for entry_id, fields in entries:
         entry_ids.append(entry_id)
@@ -64,10 +67,10 @@ def flush_logs_once(self, max_read: int = 500) -> int:
         try:
             # Use Concat to update the text atomically without select_for_update
             AISTPipeline.objects.filter(id=pid).update(
-                logs=Concat(F("logs"), Value(text_block))
+                logs=Concat(F("logs"), Value(text_block)),
             )
             written += len(lines)
-        except Exception:
+        except Exception:  # noqa: S112
             # Silently ignore errors; lines will remain pending and can be retried
             continue
 

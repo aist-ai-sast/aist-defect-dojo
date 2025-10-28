@@ -17,7 +17,6 @@ from pathlib import Path
 import environ
 import pghistory
 from celery.schedules import crontab
-from kombu import Queue
 from netaddr import IPNetwork, IPSet
 
 from dojo import __version__
@@ -2133,14 +2132,15 @@ PGHISTORY_OBJ_FIELD = pghistory.ObjForeignKey(db_index=True)
 
 AIST_PIPELINE_CODE_PATH = env(
     "AIST_PIPELINE_CODE_PATH",
-    default=str(Path(__file__).resolve().parent.parent.parent / "sast-combinator" / "tools" / "sast-pipeline")
+    default=str(Path(__file__).resolve().parent.parent.parent / "sast-combinator" / "tools" / "sast-pipeline"),
 )
 
-AIST_PROJECTS_BUILD_DIR = env("AIST_PROJECTS_BUILD_DIR", default="/tmp/aist/projects")
+# TODO: probably need re-arrange locations
+AIST_PROJECTS_BUILD_DIR = env("AIST_PROJECTS_BUILD_DIR", default="/tmp/aist/projects")   # noqa: S108
 
 PUBLIC_BASE_URL = env("PUBLIC_BASE_URL", default="https://157.90.113.55:8443/")
-AIST_AI_TRIAGE_WEBHOOK_URL=env("AIST_AI_TRIAGE_WEBHOOK_URL", default="https://flaming.app.n8n.cloud/webhook/triage-sast")
-AIST_AI_TRIAGE_SECRET=""
+AIST_AI_TRIAGE_WEBHOOK_URL = env("AIST_AI_TRIAGE_WEBHOOK_URL", default="https://flaming.app.n8n.cloud/webhook/triage-sast")
+AIST_AI_TRIAGE_SECRET = ""
 REST_FRAMEWORK["DEFAULT_PERMISSION_CLASSES"] += ("rest_framework.permissions.IsAuthenticated",)
 
 GITHUB_APP = {
@@ -2149,7 +2149,7 @@ GITHUB_APP = {
     "CLIENT_ID": env("GITHUB_CLIENT_ID", default=""),
     "NAME": env("GITHUB_APP_NAME", default=""),
     "WEBHOOK_TYPE": env("WEBHOOK_TYPE", default=""),
-    "PRIVATE_KEY": env("PRIVATE_KEY", default="")
+    "PRIVATE_KEY": env("PRIVATE_KEY", default=""),
 }
 
 LOGIN_EXEMPT_URLS += (r"^aist/pipelines/[^/]+/callback/?$", r"^aist/github_hook/")

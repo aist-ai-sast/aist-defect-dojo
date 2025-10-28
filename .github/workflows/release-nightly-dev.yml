@@ -1,4 +1,4 @@
-name: "Release-Nightly: Build & Push DEV"
+name: "DD Release-Nightly: Build & Push DEV"
 
 env:
   GIT_USERNAME: "DefectDojo release bot"

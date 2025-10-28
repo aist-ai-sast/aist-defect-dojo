@@ -1,34 +1,39 @@
 from __future__ import annotations
 
-import logging
-import os
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from datetime import date, timedelta
+from pathlib import Path
+from typing import Any
+
 from django.conf import settings
 from django.contrib.auth import get_user_model
 from django.utils import timezone
-from dojo.models import Development_Environment
-from celery.result import ResultSet
-from .utils import _import_sast_pipeline_package
-from .logging_transport import _install_db_logging
 
 from dojo.importers.default_importer import DefaultImporter
 from dojo.models import (
+    Development_Environment,
     Engagement,
+    Finding,
     Product,
     Product_Type,
     Test,
-    Finding,
 )
 
+from .logging_transport import _install_db_logging
+from .utils import _import_sast_pipeline_package
+
 _import_sast_pipeline_package()
-from pipeline.defect_dojo.repo_info import RepoParams, read_repo_params # type: ignore
-from pipeline.config_utils import AnalyzersConfigHelper # type: ignore
+
+# These imports intentionally come AFTER the call above; suppress E402 explicitly.
+from pipeline.config_utils import AnalyzersConfigHelper  # noqa: E402
+from pipeline.defect_dojo.repo_info import RepoParams, read_repo_params  # noqa: E402
+
 
 @dataclass
 class ImportConfig:
-    """Configuration options loaded from the defectdojo.yaml file.
+
+    """
+    Configuration options loaded from the defectdojo.yaml file.
 
     Only fields relevant to the internal importer are defined here. The
     original configuration includes other options (URL, SSL verification)
@@ -40,9 +45,12 @@ class ImportConfig:
     name_mode: str = "analyzer-sha"
     engagement_status: str = "In Progress"
 
+
 @dataclass
 class ImportResult:
-    """Result returned by :func:`upload_results_internal`.
+
+    """
+    Result returned by :func:`upload_results_internal`.
 
     ``engagement_id`` and ``test_id`` allow callers to reference the
     imported objects. ``imported_findings`` records how many findings
@@ -54,14 +62,15 @@ class ImportResult:
 
     engagement_id: int
     engagement_name: str
-    test_id: Optional[int]
+    test_id: int | None
     imported_findings: int
     enriched_count: int
     raw: Test
 
 
-def derive_engagement_name(analyzer_name: str, branch: Optional[str], commit: Optional[str], name_mode: str) -> str:
-    """Derive an engagement name from analyser and repository information.
+def derive_engagement_name(analyzer_name: str, branch: str | None, commit: str | None, name_mode: str) -> str:
+    """
+    Derive an engagement name from analyser and repository information.
 
     The naming scheme mirrors the logic in :meth:`SastPipelineDDClient.derive_engagement_name`.
 
@@ -82,13 +91,14 @@ def derive_engagement_name(analyzer_name: str, branch: Optional[str], commit: Op
 
 def resolve_scan_type(analyzer: dict[str, Any]) -> str:
     ot = (analyzer.get("output_type") or "SARIF").strip()
-    if ot.lower() in ("xml", "generic-xml"):
+    if ot.lower() in {"xml", "generic-xml"}:
         return "Generic XML Import"
     return ot
 
 
 def get_or_create_product(product_name: str) -> Product:
-    """Retrieve or create a Product.
+    """
+    Retrieve or create a Product.
 
     A default product type will be created if necessary. The product is
     lazily initialised to avoid unnecessary queries. Administrators
@@ -108,7 +118,8 @@ def get_or_create_product(product_name: str) -> Product:
 
 
 def ensure_engagement(product: Product, name: str, repo_params: RepoParams, status: str) -> Engagement:
-    """Get or create an Engagement with repository metadata.
+    """
+    Get or create an Engagement with repository metadata.
 
     If an engagement with the same name exists its repository metadata
     (source_code_management_uri, branch_tag, commit_hash) is updated
@@ -136,7 +147,7 @@ def ensure_engagement(product: Product, name: str, repo_params: RepoParams, stat
     # Create new engagement
     today = date.today()
     tomorrow = today + timedelta(days=1)
-    engagement = Engagement.objects.create(
+    return Engagement.objects.create(
         name=name,
         product=product,
         engagement_type="CI/CD",
@@ -147,18 +158,18 @@ def ensure_engagement(product: Product, name: str, repo_params: RepoParams, stat
         branch_tag=repo_params.branch_tag,
         commit_hash=repo_params.commit_hash,
     )
-    return engagement
 
 
 def import_scan_via_default_importer(
     engagement: Engagement,
     scan_type: str,
-    report_path: str,
+    report_path: Path,
     test_title: str,
     repo_params: RepoParams,
     minimum_severity: str,
-) -> Tuple[Test, List[Finding]]:
-    """Import a scan using :class:`DefaultImporter` and return the Test and findings.
+) -> tuple[Test, list[Finding]]:
+    """
+    Import a scan using :class:`DefaultImporter` and return the Test and findings.
 
     This helper encapsulates the boilerplate required to instantiate
     DefaultImporter with the correct options for the pipeline use case.
@@ -192,7 +203,7 @@ def import_scan_via_default_importer(
         auto_create_context=True,
         user=lead,
     )
-    with open(report_path, "rb") as f:
+    with Path(report_path).open("rb") as f:
         test_obj, *_rest = importer.process_scan(f)
     # Collect findings associated with the test
     findings = list(Finding.objects.filter(test=test_obj))
@@ -200,24 +211,24 @@ def import_scan_via_default_importer(
 
 
 def upload_report_internal(
-        analyzer_name: str,
-        product_name: str,
-        scan_type: str,
-        report_path: str,
-        repo_params: RepoParams,
-        trim_path: str,
-        cfg: ImportConfig,
-        pipeline_id: str,
-        log_level: str
+    analyzer_name: str,
+    product_name: str,
+    scan_type: str,
+    report_path: Path,
+    repo_params: RepoParams,
+    trim_path: str,
+    cfg: ImportConfig,
+    pipeline_id: str,
+    log_level: str,
 ) -> ImportResult:
-    """Replicate the behaviour of :meth:`SastPipelineDDClient.upload_report` without REST.
+    """
+    Replicate the behaviour of :meth:`SastPipelineDDClient.upload_report` without REST.
 
     This function orchestrates product/engagement creation, scan import
-    and post‑processing (file path trimming, link enrichment and deletion
+    and post-processing (file path trimming, link enrichment and deletion
     of invalid findings). It is intended to be called from
     :func:`upload_results_internal`.
     """
-
     # Ensure product and engagement exist
     product = get_or_create_product(product_name)
     eng_name = derive_engagement_name(analyzer_name, repo_params.branch_tag, repo_params.commit_hash, cfg.name_mode)
@@ -236,27 +247,25 @@ def upload_report_internal(
     imported_count = len(findings)
     logger.info("Import finished for %s, %d findings", analyzer_name, imported_count)
 
-    # Collect finding IDs for later enrichment
     return ImportResult(
         engagement_id=engagement.id,
         engagement_name=eng_name,
         test_id=test_obj.id if test_obj else None,
         imported_findings=imported_count,
-        enriched_count=0,          # will be updated in enrichment callback
+        enriched_count=0,  # will be updated in enrichment callback
         raw=test_obj,
     )
 
 
 def upload_results_internal(
-        analyzers_cfg_path: str,
-        output_dir: str,
-        product_name: str,
-        repo_path: str,
-        trim_path: str,
-        pipeline_id: str,
-        log_level: str
-) -> List[ImportResult]:
-
+    analyzers_cfg_path: str,
+    output_dir: str,
+    product_name: str,
+    repo_path: str,
+    trim_path: str,
+    pipeline_id: str,
+    log_level: str,
+) -> list[ImportResult]:
     cfg = ImportConfig()
     repo_dir = repo_path
     logger = _install_db_logging(pipeline_id, log_level)
@@ -264,20 +273,20 @@ def upload_results_internal(
         repo_params = read_repo_params(repo_dir)
     except Exception as exc:
         logger.warning("Failed to read repository info from %s: %s", repo_dir, exc)
-        # TODO: fill me with some info for local sorces
+        # TODO: fill me with some info for local sources
         repo_params = RepoParams(commit_hash=None, branch_tag=None, repo_url=None, scm_type=None, local_path=repo_dir)
-    # Build list of analysers
+
     analyzers_cfg = AnalyzersConfigHelper(analyzers_cfg_path)
     if not analyzers_cfg:
         return []
     analyzers = analyzers_cfg.get_analyzers()
 
-    results: List[ImportResult] = []
+    results: list[ImportResult] = []
     for analyzer in analyzers:
         name = analyzer.get("name") or "unknown"
         report_name = analyzers_cfg.get_analyzer_result_file_name(analyzer)
-        report_path = os.path.join(output_dir, report_name)
-        if not os.path.exists(report_path):
+        report_path = Path(output_dir) / report_name
+        if not report_path.exists():
             logger.error("No result on expected path %s for analyzer %s", report_path, name)
             continue
         scan_type = resolve_scan_type(analyzer)
@@ -292,10 +301,9 @@ def upload_results_internal(
                 trim_path=trim_path,
                 cfg=cfg,
                 pipeline_id=pipeline_id,
-                log_level=log_level
+                log_level=log_level,
             )
             results.append(res)
         except Exception as exc:
             logger.error("Error during uploading report %s: %s", report_path, exc)
     return results
-

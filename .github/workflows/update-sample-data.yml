@@ -1,4 +1,4 @@
-name: Update Sample Data
+name: DD Update Sample Data
 
 env:
   GIT_USERNAME: "DefectDojo release bot"
@@ -12,6 +12,7 @@ on:
 
 jobs:
   run-binary-and-create-pr:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     steps:
       # Checkout the repository

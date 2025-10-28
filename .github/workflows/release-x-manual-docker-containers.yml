@@ -1,4 +1,4 @@
-name: "release-X: Release docker containers"
+name: "DD release-X: Release docker containers"
 
 env:
   GIT_USERNAME: "DefectDojo release bot"
@@ -30,6 +30,7 @@ on:
 
 jobs:
   job-build-and-push:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ${{ inputs.platform ==  'linux/arm64' && 'ubuntu-24.04-arm' || 'ubuntu-latest' }}
     strategy:
       fail-fast: false

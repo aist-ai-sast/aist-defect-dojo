@@ -1,4 +1,4 @@
-name: Release Drafter
+name: DD Release Drafter
 
 on:
   workflow_dispatch:
@@ -21,6 +21,7 @@ jobs:
   # Update the notes in the release drafter first
   # If the following jobs fail, then we will at least have some release notes present
   update_release_draft:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     outputs:
       upload_url: ${{ steps.create_release.outputs.upload_url }}
@@ -34,6 +35,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
   # Generate the OAS schemas in another workflow
   oas-fetch:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     needs: update_release_draft
     uses: ./.github/workflows/fetch-oas.yml
     with:
@@ -41,6 +43,7 @@ jobs:
     secrets: inherit
   # Upload the OAS schemas to the release object
   add-oas-to-release:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     needs:
       - update_release_draft
       - oas-fetch

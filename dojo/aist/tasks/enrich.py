@@ -1,25 +1,28 @@
-import requests
-from celery import current_app
-from urllib.parse import urlparse
 import os
-from dojo.models import Test, Finding, DojoMeta
-from celery import shared_task, current_app, chord, chain
-from dojo.aist.logging_transport import get_redis
-from typing import Any, Dict, List, Optional
-from dojo.aist.logging_transport import get_redis, _install_db_logging
-from django.db import transaction
-from dojo.aist.models import AISTPipeline, AISTStatus
-from .dedup import watch_deduplication
+import time
 from math import ceil
-from dojo.aist.utils import build_project_version_file_blob
+from typing import Any
+from urllib.parse import urlparse
 
-# TODO: add here the possibility to process local files
+import requests
+from celery import chain, chord, shared_task
+from django.db import transaction
+
+from dojo.aist.logging_transport import _install_db_logging, get_redis
+from dojo.aist.models import AISTPipeline, AISTStatus
+from dojo.aist.utils import build_project_version_file_blob
+from dojo.models import DojoMeta, Finding, Test
+
+from .dedup import watch_deduplication
+
+
 class LinkBuilder:
+
     """Build source links for GitHub/GitLab/Bitbucket; verify remote file existence (handles 429)."""
 
     def __init__(self, version_descriptor):
-        self.is_local_files = version_descriptor['type'] == 'FILE_HASH'
-        self.version_id = version_descriptor['id']
+        self.is_local_files = version_descriptor["type"] == "FILE_HASH"
+        self.version_id = version_descriptor["id"]
 
     @staticmethod
     def _scm_type(repo_url: str) -> str:
@@ -40,11 +43,11 @@ class LinkBuilder:
             return "azure"
         return "generic"
 
-    def build(self, repo_url: str, file_path: str, ref: Optional[str]) -> Optional[str]:
+    def build(self, repo_url: str, file_path: str, ref: str | None) -> str | None:
         if not file_path:
             return None
 
-        file_path = file_path.replace("file://","")
+        file_path = file_path.replace("file://", "")
         fp = file_path.lstrip("/")
         if self.is_local_files:
             return build_project_version_file_blob(self.version_id, fp)
@@ -62,23 +65,24 @@ class LinkBuilder:
             return f"{repo_url.rstrip('/')}/src/{ref}/{fp}"
         if scm == "bitbucket-server":
             return f"{repo_url.rstrip('/')}/browse/{fp}?at={ref}"
-        if scm in ("gitea", "codeberg"):
+        if scm in {"gitea", "codeberg"}:
             return f"{repo_url.rstrip('/')}/src/{ref}/{fp}"
         if scm == "azure":
             return f"{repo_url.rstrip('/')}/?path=/{fp}&version=GC{ref}"
         return f"{repo_url.rstrip('/')}/blob/{ref}/{fp}"
 
-    def remote_link_exists(self, url: str, timeout: int = 5, max_retries: int = 3) -> Optional[bool]:
+    def remote_link_exists(self, url: str, timeout: int = 5, max_retries: int = 3) -> bool | None:
         """Return True if GET 200/3xx, False if 404, None for other errors. Retries on 429."""
-
         if self.is_local_files:
-            return True # No need to check local files
+            return True
 
         try:
             r = requests.get(url, allow_redirects=True, timeout=timeout)
+        except requests.RequestException:
+            return None
+        else:
             if r.status_code == 429 and max_retries > 0:
                 retry = int(r.headers.get("Retry-After", "1"))
-                import time
                 time.sleep(retry)
                 return self.remote_link_exists(url, timeout, max_retries - 1)
             if r.status_code == 200:
@@ -88,8 +92,7 @@ class LinkBuilder:
             if r.status_code == 404:
                 return False
             return None
-        except requests.RequestException:
-            return None
+
 
 @shared_task(bind=True)
 def report_enrich_done(self, result: int, pipeline_id: str):
@@ -97,6 +100,7 @@ def report_enrich_done(self, result: int, pipeline_id: str):
     key = f"aist:progress:{pipeline_id}:enrich"
     redis.hincrby(key, "done", 1)
     return result
+
 
 @shared_task(name="dojo.aist.after_upload_enrich_and_watch")
 def after_upload_enrich_and_watch(results: list[int],
@@ -123,88 +127,76 @@ def after_upload_enrich_and_watch(results: list[int],
         pipeline.watch_dedup_task_id = res.id
         pipeline.save(update_fields=["watch_dedup_task_id", "updated"])
 
+
 @shared_task(bind=False)
 def enrich_finding_task(
     finding_id: int,
     repo_url: str,
-    ref: Optional[str],
+    ref: str | None,
     trim_path: str,
-    project_version_descriptor: Dict[str, Any],
+    project_version_descriptor: dict[str, Any],
 ) -> int:
-    """Enrich a single finding by trimming its file path and attaching a source link.
-
-    This task mirrors the logic contained in the internal importer for
-    processing a single finding. It loads the finding from the
-    database, optionally trims the file path, constructs a remote link
-    via :class:`LinkBuilder`, tests whether the link exists and either
-    attaches metadata or deletes the finding accordingly.
-
-    :param finding_id: The ID of the finding to process.
-    :param repo_url: The base repository URL to use for link construction.
-    :param ref: A branch or commit hash used to qualify the link.
-    :param trim_path: A prefix to remove from the finding's file_path.
-    :returns: 1 when the finding was enriched, 0 otherwise.
-    """
+    """Enrich a single finding by trimming its file path and attaching a source link."""
     try:
         f = Finding.objects.select_related("test__engagement").get(id=finding_id)
     except Finding.DoesNotExist:
         return 0
-    try:
-        file_path = f.file_path or ""
-        # Trim the path
-        if trim_path and file_path.startswith(trim_path):
-            tp = trim_path if trim_path.endswith("/") else trim_path + "/"
-            f.file_path = file_path.replace(tp, "")
-            f.save(update_fields=["file_path"])
-            file_path = f.file_path
-        # Build a link
-        linker = LinkBuilder(project_version_descriptor)
-        link = linker.build(repo_url or "", file_path, ref)
-        if not link:
+    else:
+        try:
+            file_path = f.file_path or ""
+            if trim_path and file_path.startswith(trim_path):
+                tp = trim_path if trim_path.endswith("/") else trim_path + "/"
+                f.file_path = file_path.replace(tp, "")
+                f.save(update_fields=["file_path"])
+                file_path = f.file_path
+
+            linker = LinkBuilder(project_version_descriptor)
+            link = linker.build(repo_url or "", file_path, ref)
+            if not link:
+                return 0
+            exists = linker.remote_link_exists(link)
+            if exists:
+                DojoMeta.objects.update_or_create(
+                    finding=f,
+                    name="sourcefile_link",
+                    value=link,
+                )
+                return 1
+            if exists is False:
+                f.delete()
+                return 0
+            return 0  # noqa: TRY300
+        except Exception:
             return 0
-        exists = linker.remote_link_exists(link)
-        if exists:
-            # Attach or update metadata
-            DojoMeta.objects.update_or_create(
-                finding=f,
-                name="sourcefile_link",
-                value=link,
-            )
-            return 1
-        if exists is False:
-            f.delete()
-            return 0
-        # Unknown status: skip enrichment
-        return 0
-    except Exception as e:
-        return 0
+
 
 @shared_task(bind=False)
 def enrich_finding_batch(
     finding_ids: list[int],
     repo_url: str,
-    ref: Optional[str],
+    ref: str | None,
     trim_path: str,
-    project_version_descriptor: Dict[str, Any],
+    project_version_descriptor: dict[str, Any],
 ) -> int:
     processed = 0
     for fid in finding_ids:
         try:
             processed += int(enrich_finding_task.run(fid, repo_url, ref, trim_path, project_version_descriptor) or 0)
-        except Exception:
+        except Exception:  # noqa: S112
             continue
     return processed
 
+
 def make_enrich_chord(
     *,
-    finding_ids: List[int],
+    finding_ids: list[int],
     repo_url: str,
-    ref: Optional[str],
+    ref: str | None,
     trim_path: str,
     pipeline_id: str,
-    test_ids: List[int],
+    test_ids: list[int],
     log_level: str,
-    project_version_descriptor: Dict[str, Any],
+    project_version_descriptor: dict[str, Any],
 ):
     """
     Build a Celery chord that:
@@ -215,8 +207,8 @@ def make_enrich_chord(
 
     Returns:
         celery.canvas.Signature: A chord signature ready to dispatch/replace.
-    """
 
+    """
     workers = int(os.getenv("DD_CELERY_WORKER_AUTOSCALE_MAX", "4") or 4)
     logger = _install_db_logging(pipeline_id, log_level)
     logger.info(f"Number of workers for enrichment available: {workers}")
@@ -230,7 +222,7 @@ def make_enrich_chord(
     #    We never create more chunks than findings or workers.
     k = max(1, min(workers, total))
     chunk_size = ceil(total / k)
-    chunks = [finding_ids[i : i + chunk_size] for i in range(0, total, chunk_size)]
+    chunks = [finding_ids[i: i + chunk_size] for i in range(0, total, chunk_size)]
 
     # 3) Initialize progress in Redis (total = number of findings, done = 0).
     #    report_enrich_done will HINCRBY "done" by the processed count for each chunk.

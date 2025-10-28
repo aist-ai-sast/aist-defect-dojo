@@ -1,13 +1,17 @@
 import time
-from dojo.aist.models import AISTPipeline, AISTStatus,TestDeduplicationProgress
+
 from celery import shared_task
+from django.db import OperationalError, transaction
+
 from dojo.aist.logging_transport import _install_db_logging
-from django.db import transaction, OperationalError
+from dojo.aist.models import AISTPipeline, AISTStatus, TestDeduplicationProgress
 from dojo.models import Test
+
 
 @shared_task(bind=True)
 def watch_deduplication(self, pipeline_id: str, log_level) -> None:
-    """Monitor deduplication progress and finalise the pipeline.
+    """
+    Monitor deduplication progress and finalise the pipeline.
 
     This task polls the ``Test`` model to determine when all imported
     tests have completed deduplication.  Once deduplication is
@@ -21,27 +25,27 @@ def watch_deduplication(self, pipeline_id: str, log_level) -> None:
     logger = _install_db_logging(pipeline_id, log_level)
     if not pipeline.tests.exists():
         pipeline.status = AISTStatus.FINISHED
-        pipeline.save(update_fields=['status', 'updated'])
+        pipeline.save(update_fields=["status", "updated"])
         logger.warning("No tests to wait")
         return
     # Poll until all deduplication flags are true
     try:
         while True:
-                # Reload pipeline to capture any manual status change
-                pipeline.refresh_from_db()
-                # Exit early if user or another task finished the pipeline
-                if pipeline.status == AISTStatus.FINISHED:
-                    return
-                # Query for tests still undergoing deduplication
-                remaining = pipeline.tests.filter(deduplication_complete=False).count()
-                if remaining > 0:
-                    # Sleep for 10 seconds before checking again
-                    time.sleep(3)
-                    continue
-                # TODO: set only if flag waiting for confirmation is set
-                pipeline.status = AISTStatus.WAITING_CONFIRMATION_TO_PUSH_TO_AI
-                pipeline.save(update_fields=["status", "updated"])
+            # Reload pipeline to capture any manual status change
+            pipeline.refresh_from_db()
+            # Exit early if user or another task finished the pipeline
+            if pipeline.status == AISTStatus.FINISHED:
                 return
+            # Query for tests still undergoing deduplication
+            remaining = pipeline.tests.filter(deduplication_complete=False).count()
+            if remaining > 0:
+                # Sleep for 10 seconds before checking again
+                time.sleep(3)
+                continue
+            # TODO: set only if flag waiting for confirmation is set
+            pipeline.status = AISTStatus.WAITING_CONFIRMATION_TO_PUSH_TO_AI
+            pipeline.save(update_fields=["status", "updated"])
+            return
 
     except Exception as exc:
         logger.error("Exception while waiting for deduplication to finish: %s", exc)

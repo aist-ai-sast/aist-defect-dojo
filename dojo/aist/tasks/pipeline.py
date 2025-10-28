@@ -1,29 +1,48 @@
-import os
+from __future__ import annotations
+
+from pathlib import Path
+
+from celery import shared_task
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
-from dojo.aist.utils import _import_sast_pipeline_package
-from typing import Any, Dict, List, Optional
-from celery import shared_task, chord, chain
-from django.db import transaction, OperationalError
-from dojo.models import Test, Finding
-from dojo.aist.models import AISTPipeline, AISTStatus, AISTProjectVersion
 
-from dojo.aist.logging_transport import get_redis, _install_db_logging
-from .enrich import make_enrich_chord
+from dojo.aist.logging_transport import _install_db_logging, get_redis
+from dojo.aist.models import AISTPipeline, AISTProjectVersion, AISTStatus
 from dojo.aist.pipeline_args import PipelineArguments
+from dojo.aist.utils import _import_sast_pipeline_package
+from dojo.models import Finding, Test
 
+from .enrich import make_enrich_chord
+
+# --------------------------------------------------------------------
+# Ensure external "pipeline" package is importable before importing it
+# --------------------------------------------------------------------
 _import_sast_pipeline_package()
 
-from pipeline.project_builder import configure_project_run_analyses  # type: ignore
-from pipeline.config_utils import AnalyzersConfigHelper  # type: ignore
-from pipeline.defect_dojo.repo_info import read_repo_params  # type: ignore
-from pipeline.docker_utils import cleanup_pipeline_containers # type: ignore
-from dojo.aist.internal_upload import upload_results_internal
-from celery.exceptions import Ignore
+from celery.exceptions import Ignore  # noqa: E402
+from pipeline.config_utils import AnalyzersConfigHelper  # type: ignore[import-not-found]  # noqa: E402
+from pipeline.defect_dojo.repo_info import read_repo_params  # type: ignore[import-not-found]  # noqa: E402
+from pipeline.project_builder import configure_project_run_analyses  # type: ignore[import-not-found]  # noqa: E402
+
+from dojo.aist.internal_upload import upload_results_internal  # noqa: E402
+
+# -------------------------
+# Error messages/constants
+# -------------------------
+MSG_PROJECT_BUILD_PATH_NOT_SET = "Project build path for AIST is not setup"
 
 
-def postprocess_findings(pipeline_id, repo_path, finding_ids, trim_path, test_ids, log_level, project_version_descriptor):
-    local_run = project_version_descriptor.get('type', 'FILE_HASH') == 'FILE_HASH'
+def postprocess_findings(
+    pipeline_id,
+    repo_path,
+    finding_ids,
+    trim_path,
+    test_ids,
+    log_level,
+    project_version_descriptor,
+):
+    local_run = project_version_descriptor.get("type", "FILE_HASH") == "FILE_HASH"
     repo_params = {}
     if not local_run:
         try:
@@ -31,7 +50,7 @@ def postprocess_findings(pipeline_id, repo_path, finding_ids, trim_path, test_id
         except Exception as exc:
             logger = _install_db_logging(pipeline_id, log_level)
             logger.error("Failed to read repository info from %s: %s", repo_path, exc)
-            return
+            return None
 
     with transaction.atomic():
         pipeline = AISTPipeline.objects.select_for_update().get(id=pipeline_id)
@@ -42,7 +61,8 @@ def postprocess_findings(pipeline_id, repo_path, finding_ids, trim_path, test_id
     ref = getattr(repo_params, "commit_hash", None) or getattr(repo_params, "branch_tag", None)
     redis = get_redis()
     redis.hset(f"aist:progress:{pipeline_id}:enrich", mapping={"total": len(finding_ids), "done": 0})
-    sig = make_enrich_chord(
+
+    return make_enrich_chord(
         finding_ids=finding_ids,
         repo_url=repo_url,
         ref=ref,
@@ -50,9 +70,9 @@ def postprocess_findings(pipeline_id, repo_path, finding_ids, trim_path, test_id
         pipeline_id=pipeline_id,
         test_ids=test_ids,
         log_level=log_level,
-        project_version_descriptor=project_version_descriptor
+        project_version_descriptor=project_version_descriptor,
     )
-    return sig
+
 
 @shared_task(bind=True)
 def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
@@ -67,9 +87,9 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
     :param pipeline_id: Primary key of the :class:`AISTPipeline` instance.
     :param params: Dictionary of parameters collected from the form.
     """
-
     log_level = params.get("log_level", "INFO")
     logger = _install_db_logging(pipeline_id, log_level)
+    pipeline = None  # ensure defined for exception path
 
     try:
         with transaction.atomic():
@@ -88,23 +108,25 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
             pipeline.status = AISTStatus.SAST_LAUNCHED
             pipeline.started = timezone.now()
             pipeline.save(update_fields=["status", "started", "updated"])
+
             if params is None:
                 logger.info("Launch via API. Using default parameters for project.")
                 params = PipelineArguments(project=pipeline.project, project_version=pipeline.project_version.as_dict())
             else:
                 params = PipelineArguments.from_dict(params)
+
             repo = pipeline.project.repository
 
         logger.info(f"Project version: {params.project_version}")
         if params.project_version:
-            project_version = AISTProjectVersion.objects.get(pk=params.project_version['id'])
+            project_version = AISTProjectVersion.objects.get(pk=params.project_version["id"])
             project_version.ensure_extracted()
 
         analyzers_helper = AnalyzersConfigHelper()
         project_name = params.project_name
         languages = params.languages
         project_version = params.project_version
-        output_dir =  params.output_dir
+        output_dir = params.output_dir
         rebuild_images = params.rebuild_images
         analyzers = params.analyzers
         time_class_level = params.time_class_level
@@ -117,8 +139,11 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
 
         project_build_path = getattr(settings, "AIST_PROJECTS_BUILD_DIR", None)
         if not project_build_path:
-            raise RuntimeError("Project build path for AIST is not setup")
-        project_build_path = os.path.join(project_build_path, project_name, params.project_version.get("version", "default"))
+            raise RuntimeError(MSG_PROJECT_BUILD_PATH_NOT_SET)
+
+        project_build_path = str(
+            Path(project_build_path) / (project_name or "project") / (params.project_version.get("version", "default")),
+        )
 
         logger.info("Starting configure_project_run_analyses")
         launch_data = configure_project_run_analyses(
@@ -137,7 +162,7 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
             min_time_class=time_class_level or "",
             analyzers=analyzers,
             pipeline_id=pipeline_id,
-            additional_env = params.additional_environments
+            additional_env=params.additional_environments,
         )
 
         launch_data["languages"] = languages
@@ -162,7 +187,7 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
             log_level=log_level,
         )
 
-        tests: List[Test] = []
+        tests: list[Test] = []
         test_ids = []
         for res in results or []:
             tid = getattr(res, "test_id", None)
@@ -172,8 +197,8 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
                 if test:
                     tests.append(test)
 
-        finding_ids: List[int] = list(
-            Finding.objects.filter(test_id__in=test_ids).values_list('id', flat=True)
+        finding_ids: list[int] = list(
+            Finding.objects.filter(test_id__in=test_ids).values_list("id", flat=True),
         )
 
         test_ids = [t.id for t in tests]
@@ -185,12 +210,15 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
                 logger.info("No findings to enrich; Finishing pipeline")
                 pipeline.save(update_fields=["status", "updated"])
         else:
-            raise self.replace(postprocess_findings(pipeline_id, repo_path, finding_ids, trim_path, test_ids, log_level,
-                                                    project_version))
+            raise self.replace(
+                postprocess_findings(
+                    pipeline_id, repo_path, finding_ids, trim_path, test_ids, log_level, project_version,
+                ),
+            )
     except Ignore:
         raise
-    except Exception as exc:
-        logger.exception("Exception while running SAST pipeline: %s", exc)
+    except Exception:
+        logger.exception("Exception while running SAST pipeline (pipeline_id=%s)", pipeline_id)
         if pipeline is not None:
             try:
                 with transaction.atomic():

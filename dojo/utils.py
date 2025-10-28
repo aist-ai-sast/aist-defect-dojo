@@ -31,7 +31,7 @@ from django.contrib import messages
 from django.contrib.auth.signals import user_logged_in, user_logged_out, user_login_failed
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
-from django.db import OperationalError
+from django.db import OperationalError, transaction
 from django.db.models import Case, Count, F, IntegerField, Q, Sum, Value, When
 from django.db.models.query import QuerySet
 from django.db.models.signals import post_save
@@ -75,6 +75,7 @@ from dojo.models import (
     User,
 )
 from dojo.notifications.helper import create_notification
+from dojo.signals import finding_deduplicated
 
 logger = logging.getLogger(__name__)
 deduplicationLogger = logging.getLogger("dojo.specific-loggers.deduplication")

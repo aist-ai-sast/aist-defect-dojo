@@ -1,4 +1,4 @@
-name: "Release-Nightly: Core"
+name: "DD Release-Nightly: Core"
 
 env:
   GIT_USERNAME: "DefectDojo release bot"
@@ -36,6 +36,7 @@ on:
 
 jobs:
   tag:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -54,6 +55,7 @@ jobs:
           git push origin ${{ inputs.tag-to-apply }} -f
 
   publish-docker-containers:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     needs: tag
     strategy:
         matrix:
@@ -66,6 +68,7 @@ jobs:
     secrets: inherit
 
   publish-container-digests:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     needs: publish-docker-containers
     uses: ./.github/workflows/release-x-manual-merge-container-digests.yml
     with:
@@ -73,6 +76,7 @@ jobs:
     secrets: inherit
 
   release-helm-chart:
+    if: github.repository == 'DefectDojo/django-DefectDojo'
     needs: publish-container-digests
     uses: ./.github/workflows/release-x-manual-helm-chart.yml
     with:

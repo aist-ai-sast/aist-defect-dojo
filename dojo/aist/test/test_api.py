@@ -1,5 +1,4 @@
 # dojo/aist/tests/test_aist_api.py
-# -*- coding: utf-8 -*-
 """
 Django TestCase-based tests for AIST API endpoints.
 
@@ -12,18 +11,19 @@ Covers:
 All comments are in English by request.
 """
 
-from unittest.mock import patch, Mock
+from unittest.mock import Mock, patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.urls import reverse
 from rest_framework.test import APIClient
 
+from dojo.aist.models import AISTPipeline, AISTProject, AISTProjectVersion, AISTStatus
 from dojo.models import Product, Product_Type, SLA_Configuration
-from dojo.aist.models import AISTProject, AISTPipeline, AISTStatus, AISTProjectVersion
 
 
 class AISTApiTests(TestCase):
+
     """Integration-style tests using Django TestCase and DRF's APIClient."""
 
     def setUp(self) -> None:
@@ -31,18 +31,18 @@ class AISTApiTests(TestCase):
         self.client = APIClient()
         User = get_user_model()
         self.user = User.objects.create(
-            username="tester", email="tester@example.com", password="pass"
+            username="tester", email="tester@example.com", password="pass",  # noqa: S106
         )
         # Force authenticate as a logged-in user (works with Session/Token/JWT setups)
         self.client.force_authenticate(user=self.user)
 
         # Minimal product + AIST project to work with
         self.sla = SLA_Configuration.objects.create(
-            name="SLA default for tests"
+            name="SLA default for tests",
         )
         self.prod_type = Product_Type.objects.create(name="PT for tests")
         self.product = Product.objects.create(
-            name="Test Product", description="desc", prod_type=self.prod_type, sla_configuration_id=self.sla.id
+            name="Test Product", description="desc", prod_type=self.prod_type, sla_configuration_id=self.sla.id,
         )
         self.project = AISTProject.objects.create(
             product=self.product,
@@ -62,7 +62,7 @@ class AISTApiTests(TestCase):
 
     def test_projects_list_ok(self):
         """Authenticated request returns a paginated list of AIST projects with expected fields."""
-        url = reverse("dojo_aist_api:project_list")  # /api/v2/aist/projects/ (с твоим include)
+        url = reverse("dojo_aist_api:project_list")  # /api/v2/aist/projects/
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         data = resp.json()
@@ -106,12 +106,12 @@ class AISTApiTests(TestCase):
         # On bootstrap your code sets FINISHED before task actually begins (matches api.py)
         self.assertEqual(p.status, AISTStatus.FINISHED)
 
-        #AISTProject version must be created in DB
+        # AISTProject version must be created in DB
         AISTProjectVersion.objects.get(project=self.project, version="test")
 
         # Celery task must be triggered with (pipeline_id, params)
         run_task_mock.delay.assert_called_once()
-        args, kwargs = run_task_mock.delay.call_args
+        args, _kwargs = run_task_mock.delay.call_args
         self.assertEqual(args[0], pid)  # pipeline_id
         # NOTE: in current code api.py passes None as params.
         # If you change it to {}, relax this assertion accordingly.
@@ -147,7 +147,7 @@ class AISTApiTests(TestCase):
             status=AISTStatus.WAITING_RESULT_FROM_AI,
             response_from_ai={"state": "pending", "details": {"x": 1}},
         )
-        url = reverse("dojo_aist_api:pipeline_status", kwargs={"id": p.id})
+        url = reverse("dojo_aist_api:pipeline_status", kwargs={"pipeline_id": p.id})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -159,8 +159,8 @@ class AISTApiTests(TestCase):
         self.assertIn("updated", body)
 
     def test_project_detail_get_ok(self):
-        """GET /projects/{id}/ returns a single AISTProject by id."""
-        url = reverse("dojo_aist_api:project_detail", kwargs={"id": self.project.id})
+        """GET /projects/{project_id}/ returns a single AISTProject by id."""
+        url = reverse("dojo_aist_api:project_detail", kwargs={"project_id": self.project.id})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 200)
         body = resp.json()
@@ -173,21 +173,21 @@ class AISTApiTests(TestCase):
         self.assertIn("updated", body)
 
     def test_project_detail_get_404(self):
-        """GET /projects/{id}/ with non-existing id returns 404."""
-        url = reverse("dojo_aist_api:project_detail", kwargs={"id": 999999})
+        """GET /projects/{project_id}/ with non-existing id returns 404."""
+        url = reverse("dojo_aist_api:project_detail", kwargs={"project_id": 999999})
         resp = self.client.get(url)
         self.assertEqual(resp.status_code, 404)
 
     def test_project_delete_requires_auth(self):
-        """DELETE /projects/{id}/ must require authentication."""
+        """DELETE /projects/{project_id}/ must require authentication."""
         anon = APIClient()
-        url = reverse("dojo_aist_api:project_detail", kwargs={"id": self.project.id})
+        url = reverse("dojo_aist_api:project_detail", kwargs={"project_id": self.project.id})
         resp = anon.delete(url)
         self.assertIn(resp.status_code, (401, 403))
 
     def test_project_delete_ok(self):
-        """DELETE /projects/{id}/ deletes the project and returns 204."""
-        url = reverse("dojo_aist_api:project_detail", kwargs={"id": self.project.id})
+        """DELETE /projects/{project_id}/ deletes the project and returns 204."""
+        url = reverse("dojo_aist_api:project_detail", kwargs={"project_id": self.project.id})
         resp = self.client.delete(url)
         self.assertEqual(resp.status_code, 204)
         # Ensure the object is gone

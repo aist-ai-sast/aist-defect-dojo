@@ -1,40 +1,36 @@
 from __future__ import annotations
 
 import json
-import uuid
-from typing import Any, Dict
-from django.core.paginator import Paginator
-from django.db.models import Q
-
+import time
+from contextlib import suppress
 
 from django.contrib.auth.decorators import login_required
-from django.db import transaction
+from django.core.paginator import Paginator
+from django.db import close_old_connections, transaction
+from django.db.models import Count, Q
+from django.http import Http404, HttpRequest, HttpResponse, HttpResponseBadRequest, JsonResponse, StreamingHttpResponse
 from django.shortcuts import get_object_or_404, redirect, render
-from django.http import HttpRequest, HttpResponse
 from django.views.decorators.csrf import csrf_exempt
-from django.views.decorators.http import require_http_methods
-from .models import TestDeduplicationProgress
-from django.db.models import Count
+from django.views.decorators.http import require_http_methods, require_POST
 
-
-from dojo.utils import add_breadcrumb
-from django.views.decorators.http import require_POST
-from django.http import JsonResponse, HttpResponseBadRequest
 from dojo.aist.tasks import run_sast_pipeline
+from dojo.utils import add_breadcrumb
 
-from .forms import AISTPipelineRunForm , _load_analyzers_config, _signature # type: ignore
+from .forms import (  # type: ignore[import-not-found]
+    AISTPipelineRunForm,
+    AISTProjectVersionForm,
+    _load_analyzers_config,
+    _signature,
+)
+from .logging_transport import BACKLOG_COUNT, PUBSUB_CHANNEL_TPL, STREAM_KEY, get_redis
+from .models import AISTPipeline, AISTProject, AISTStatus, TestDeduplicationProgress
+from .utils import _fmt_duration, _qs_without, create_pipeline_object, stop_pipeline
 
+# ---- Error messages -------------------------------------------------
+ERR_PIPELINE_NOT_FOUND = "Pipeline not found"
+ERR_PROJECT_NOT_FOUND = "Project not found"
+ERR_CONFIG_NOT_LOADED = "config not loaded"
 
-from .utils import stop_pipeline, _fmt_duration, _qs_without, create_pipeline_object
-from .logging_transport import _install_db_logging
-import time
-from django.http import StreamingHttpResponse, Http404
-from django.db import close_old_connections
-from django.utils.timezone import now
-
-from .models import AISTPipeline, AISTStatus, AISTProject
-from .logging_transport import get_redis, PUBSUB_CHANNEL_TPL, STREAM_KEY, BACKLOG_COUNT
-from .forms import AISTProjectVersionForm
 
 @login_required
 @require_http_methods(["GET", "POST"])
@@ -47,7 +43,7 @@ def project_version_create(request: HttpRequest, project_id: int) -> HttpRespons
 
     form = AISTProjectVersionForm(request.POST, request.FILES, initial={"project": project.id})
     if form.is_valid():
-        obj = form.save()  # save() сам поставит version = sha256 для FILE_HASH
+        obj = form.save()  # save() sets version = sha256 for FILE_HASH automatically
         return JsonResponse({
             "ok": True,
             "version": {"id": str(obj.id), "label": str(obj)},
@@ -55,6 +51,7 @@ def project_version_create(request: HttpRequest, project_id: int) -> HttpRespons
 
     html = render(request, "dojo/aist/_project_version_form.html", {"form": form, "project": project}).content.decode("utf-8")
     return JsonResponse({"ok": False, "html": html}, status=400)
+
 
 @require_POST
 def default_analyzers(request):
@@ -68,14 +65,14 @@ def default_analyzers(request):
 
     cfg = _load_analyzers_config()
     if not cfg:
-      return HttpResponseBadRequest("config not loaded")
+        return HttpResponseBadRequest(ERR_CONFIG_NOT_LOADED)  # E111 fixed (indent)
 
     filtered = cfg.get_filtered_analyzers(
         analyzers_to_run=None,
         max_time_class=time_class,
         non_compile_project=bool(proj and not proj.compilable),
         target_languages=langs_union,
-        show_only_parent=True
+        show_only_parent=True,
     )
     defaults = cfg.get_names(filtered)
 
@@ -84,102 +81,99 @@ def default_analyzers(request):
         "signature": _signature(project_id, langs_union, time_class),
     })
 
-def pipeline_status_stream(request, id: str):
-    """
-    SSE endpoint: шлёт событие 'status' при смене статуса пайплайна.
-    Завершается событием 'done' при FINISHED/FAILED/DELETED.
-    """
-    # Быстрая проверка, что объект вообще существует на момент старта
-    if not AISTPipeline.objects.filter(id=id).exists():
-        raise Http404("Pipeline not found")
+
+def pipeline_status_stream(request, pipeline_id: str):
+    """SSE endpoint: sends 'status' on status change; finishes with 'done' on FINISHED/FAILED/DELETED."""
+    # Quick existence check
+    if not AISTPipeline.objects.filter(id=pipeline_id).exists():
+        raise Http404(ERR_PIPELINE_NOT_FOUND)
 
     def event_stream():
         last_status = None
-        heartbeat_every = 3  # сек, раз в N секунд шлём keep-alive комментарий
+        heartbeat_every = 3  # seconds
         last_heartbeat = 0.0
 
         try:
             while True:
-                # В стримах важно периодически закрывать/переподключать старые коннекты
+                # Important for long-lived streams
                 close_old_connections()
 
-                # Заново читаем объект каждый цикл — не храним «живой» инстанс
+                # Re-fetch object every loop, don't keep a live instance
                 obj = (
                     AISTPipeline.objects
                     .only("id", "status", "updated")
-                    .filter(id=id)
+                    .filter(id=pipeline_id)
                     .first()
                 )
 
                 if obj is None:
-                    # Объект удалён — сообщаем клиенту и выходим
+                    # Deleted — inform client and exit
                     yield "event: done\ndata: deleted\n\n"
                     break
 
                 if obj.status != last_status:
                     last_status = obj.status
-                    # Правильный блок SSE: сначала event, затем data, затем пустая строка
+                    # Proper SSE block: event, data, blank line
                     yield f"event: status\ndata: {last_status}\n\n"
 
-                    if last_status in (
+                    if last_status in {
                         getattr(AISTStatus, "FINISHED", "FINISHED"),
                         getattr(AISTStatus, "FAILED", "FAILED"),
-                    ):
+                    }:  # PLR6201
                         yield "event: done\ndata: finished\n\n"
                         break
 
-                # Heartbeat, чтобы прокси (например, Nginx) не закрывали соединение
+                # Heartbeat so proxies (e.g., Nginx) don't close the connection
                 now_ts = time.time()
                 if now_ts - last_heartbeat >= heartbeat_every:
                     last_heartbeat = now_ts
-                    yield f": heartbeat {int(now_ts)}\n\n"  # комментарий по спецификации SSE
+                    yield f": heartbeat {int(now_ts)}\n\n"
 
                 time.sleep(1)
 
         except GeneratorExit:
-            # Клиент закрыл соединение — просто выходим, без исключений в логах
+            # Client closed connection — just exit
             return
         finally:
             close_old_connections()
 
     resp = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     resp["Cache-Control"] = "no-cache"
-    resp["X-Accel-Buffering"] = "no"  # важно для Nginx, чтобы не буферил стрим
+    resp["X-Accel-Buffering"] = "no"  # important for Nginx to avoid buffering
     return resp
 
 
-def pipeline_set_status(request, id: str):
-    if not AISTPipeline.objects.filter(id=id).exists():
-        raise Http404("Pipeline not found")
+def pipeline_set_status(request, pipeline_id: str):
+    if not AISTPipeline.objects.filter(id=pipeline_id).exists():
+        raise Http404(ERR_PIPELINE_NOT_FOUND)
 
     if request.method == "POST":
         with transaction.atomic():
             pipeline = (
                 AISTPipeline.objects
                 .select_for_update()
-                .get(id=id)
+                .get(id=pipeline_id)
             )
-
             pipeline.status = AISTStatus.WAITING_CONFIRMATION_TO_PUSH_TO_AI
             pipeline.save(update_fields=["status", "updated"])
-    return redirect('dojo_aist:pipeline_detail', id=id)
+    return redirect("dojo_aist:pipeline_detail", pipeline_id=pipeline_id)
 
 
 def start_pipeline(request: HttpRequest) -> HttpResponse:
-    """Launch a new SAST pipeline or redirect to the active one.
+    """
+    Launch a new SAST pipeline or redirect to the active one.
 
     If there is an existing pipeline that hasn't finished yet the user
-    is redirected to its detail page.  Otherwise this view presents a
-    form allowing the user to configure and start a new pipeline.  On
+    is redirected to its detail page. Otherwise this view presents a
+    form allowing the user to configure and start a new pipeline. On
     successful submission a new pipeline is created and the Celery
     task is triggered.
     """
     # If there is an active pipeline that hasn't finished yet,
-    # immediately redirect the user to its status page.  Only a single
-    # pipeline may run at a time.
+    # immediately redirect the user to its status page.
     active = AISTPipeline.objects.exclude(status=AISTStatus.FINISHED).first()
     if active:
-        return redirect('dojo_aist:pipeline_detail', id=active.id)
+        return redirect("dojo_aist:pipeline_detail", pipeline_id=active.id)
 
     project_id = request.GET.get("project")
     q = (request.GET.get("q") or "").strip()
@@ -194,11 +188,10 @@ def start_pipeline(request: HttpRequest) -> HttpResponse:
     if q:
         history_qs = history_qs.filter(
             Q(id__icontains=q) |
-            Q(project__product__name__icontains=q)
+            Q(project__product__name__icontains=q),
         )
 
     history_qs = history_qs.order_by("-updated")
-
 
     per_page = int(request.GET.get("page_size") or 8)
     paginator = Paginator(history_qs, per_page)
@@ -213,34 +206,41 @@ def start_pipeline(request: HttpRequest) -> HttpResponse:
     } for p in page_obj.object_list]
 
     history_qs_str = _qs_without(request, "page")
-    add_breadcrumb( title="Start pipeline", top_level=True, request=request)
+    add_breadcrumb(title="Start pipeline", top_level=True, request=request)
 
     if request.method == "POST":
         form = AISTPipelineRunForm(request.POST)
         if form.is_valid():
             params = form.get_params()
-            # Generate a unique identifier for this pipeline.  The
-            # downstream SAST pipeline uses an 8 character hex string
-            # internally, so mirror that here.
 
-            pipeline_id = uuid.uuid4().hex[:8]
             with transaction.atomic():
-                p = create_pipeline_object(form.cleaned_data["project"], form.cleaned_data.get("project_version")
-                                           or form.cleaned_data["project"].versions.order_by("-created").first(), None)
+                p = create_pipeline_object(
+                    form.cleaned_data["project"],
+                    form.cleaned_data.get("project_version")
+                    or form.cleaned_data["project"].versions.order_by("-created").first(),
+                    None,
+                )
             # Launch the Celery task and record its id on the pipeline.
-            # Storing the task id allows us to revoke it later if the
-            # user chooses to stop the pipeline.
             async_result = run_sast_pipeline.delay(p.id, params)
             p.run_task_id = async_result.id
             p.save(update_fields=["run_task_id"])
-            return redirect('dojo_aist:pipeline_detail', id=p.id)
+            return redirect("dojo_aist:pipeline_detail", pipeline_id=p.id)
     else:
         form = AISTPipelineRunForm()
-    return render(request, 'dojo/aist/start.html', {'form': form, 'history_page': page_obj,  # для пагинации
-                                                    'history_items': history_items,
-                                                    'history_qs': history_qs_str,
-                                                    'selected_project': project_id or "",
-                                                    'search_query': q, "page_sizes": [10, 20, 50, 100]})
+    return render(
+        request,
+        "dojo/aist/start.html",
+        {
+            "form": form,
+            "history_page": page_obj,  # for pagination
+            "history_items": history_items,
+            "history_qs": history_qs_str,
+            "selected_project": project_id or "",
+            "search_query": q,
+            "page_sizes": [10, 20, 50, 100],
+        },
+    )
+
 
 def pipeline_list(request):
     project_id = request.GET.get("project")
@@ -248,9 +248,11 @@ def pipeline_list(request):
     status = (request.GET.get("status") or "FINISHED").upper()  # FINISHED | ALL
     per_page = int(request.GET.get("page_size") or 20)
 
-    qs = (AISTPipeline.objects
-          .select_related("project__product")
-          .order_by("-updated"))
+    qs = (
+        AISTPipeline.objects
+        .select_related("project__product")
+        .order_by("-updated")
+    )
     if status != "ALL":
         qs = qs.filter(status=AISTStatus.FINISHED)
 
@@ -259,7 +261,7 @@ def pipeline_list(request):
     if q:
         qs = qs.filter(
             Q(id__icontains=q) |
-            Q(project__product__name__icontains=q)
+            Q(project__product__name__icontains=q),
         )
 
     paginator = Paginator(qs, per_page)
@@ -280,7 +282,7 @@ def pipeline_list(request):
     add_breadcrumb(title="Pipeline History", top_level=True, request=request)
     return render(
         request,
-        'dojo/aist/pipeline_list.html',
+        "dojo/aist/pipeline_list.html",
         {
             "page_obj": page_obj,
             "items": items,
@@ -289,16 +291,13 @@ def pipeline_list(request):
             "search_query": q,
             "status": status,
             "projects": projects,
-        }
+        },
     )
 
 
-def pipeline_detail(request, id: str):
-    """
-    Display the status and logs for a pipeline.
-    Adds actions (Stop/Delete) and connects SSE client to stream logs.
-    """
-    pipeline = get_object_or_404(AISTPipeline, id=id)
+def pipeline_detail(request, pipeline_id: str):
+    """Display the status and logs for a pipeline. Adds actions (Stop/Delete) and connects SSE client to stream logs."""
+    pipeline = get_object_or_404(AISTPipeline, id=pipeline_id)
     if request.headers.get("X-Partial") == "status":
         return render(request, "dojo/aist/_pipeline_status_container.html", {"pipeline": pipeline})
 
@@ -308,25 +307,21 @@ def pipeline_detail(request, id: str):
 
 @login_required
 @require_http_methods(["POST"])
-def stop_pipeline_view(request, id: str):
-    """
-    POST-only endpoint to stop a running pipeline (Celery revoke).
-    Sets FINISHED regardless of current state to keep UI consistent.
-    """
-    pipeline = get_object_or_404(AISTPipeline, id=id)
+def stop_pipeline_view(request, pipeline_id: str):
+    """POST-only endpoint to stop a running pipeline (Celery revoke). Sets FINISHED regardless of current state to keep UI consistent."""
+    pipeline = get_object_or_404(AISTPipeline, id=pipeline_id)
     with transaction.atomic():
         stop_pipeline(pipeline)
         pipeline.save(update_fields=["status"])
 
-    return redirect("dojo_aist:pipeline_detail", id=pipeline.id)
+    return redirect("dojo_aist:pipeline_detail", pipeline_id=pipeline.id)
+
 
 @login_required
 @require_http_methods(["GET", "POST"])
-def delete_pipeline_view(request, id: str):
-    """
-    Delete a pipeline after confirmation (POST). GET returns a confirm view.
-    """
-    pipeline = get_object_or_404(AISTPipeline, id=id)
+def delete_pipeline_view(request, pipeline_id: str):
+    """Delete a pipeline after confirmation (POST). GET returns a confirm view."""
+    pipeline = get_object_or_404(AISTPipeline, id=pipeline_id)
     if request.method == "POST":
         pipeline.delete()
         return redirect("dojo_aist:start_pipeline")
@@ -334,15 +329,11 @@ def delete_pipeline_view(request, id: str):
     return render(request, "dojo/aist/confirm_delete.html", {"pipeline": pipeline})
 
 
-
 @csrf_exempt  # SSE does not need CSRF for GET; keep it simple
 @require_http_methods(["GET"])
-def stream_logs_sse(request, id: str):
-    """
-    Server-Sent Events endpoint that streams new log lines for a pipeline.
-    Reads from DB; emits only new tail bytes every poll tick.
-    """
-    pipeline = get_object_or_404(AISTPipeline, id=id)
+def stream_logs_sse(request, pipeline_id: str):
+    """Server-Sent Events endpoint that streams new log lines for a pipeline. Reads from DB; emits only new tail bytes every poll tick."""
+    pipeline = get_object_or_404(AISTPipeline, id=pipeline_id)
 
     def event_stream():
         last_len = 0
@@ -370,12 +361,12 @@ def stream_logs_sse(request, id: str):
 
 def _sse_data(payload: str) -> bytes:
     """Format a single SSE 'message' event."""
-    return f"data: {payload}\n\n".encode("utf-8")
+    return f"data: {payload}\n\n".encode()
 
 
 def _sse_comment(comment: str) -> bytes:
     """Format an SSE comment line (useful as heartbeat)."""
-    return f": {comment}\n\n".encode("utf-8")
+    return f": {comment}\n\n".encode()
 
 
 def _stream_last_lines_from_redis_stream(r, pipeline_id: str, limit: int):
@@ -387,7 +378,7 @@ def _stream_last_lines_from_redis_stream(r, pipeline_id: str, limit: int):
         # XREVRANGE stream + - COUNT N  -> newest first
         entries = r.xrevrange(STREAM_KEY, max="+", min="-", count=limit) or []
         # reverse to oldest -> newest for nicer UI
-        for entry_id, fields in reversed(entries):
+        for _entry_id, fields in reversed(entries):  # B007
             pid = (fields or {}).get("pipeline_id")
             msg = (fields or {}).get("message")
             lvl = (fields or {}).get("level")
@@ -402,7 +393,7 @@ def _stream_last_lines_from_redis_stream(r, pipeline_id: str, limit: int):
 
 @csrf_exempt
 @require_http_methods(["GET"])
-def stream_logs_sse_redis_based(request: HttpRequest, id: str) -> HttpResponse:
+def stream_logs_sse_redis_based(request: HttpRequest, pipeline_id: str) -> HttpResponse:
     """
     SSE endpoint for pipeline logs.
     1) Replays last N lines from Redis Stream for quick backlog.
@@ -410,16 +401,16 @@ def stream_logs_sse_redis_based(request: HttpRequest, id: str) -> HttpResponse:
     """
     # Validate pipeline
     try:
-        AISTPipeline.objects.only("id").get(id=id)
+        AISTPipeline.objects.only("id").get(id=pipeline_id)
     except AISTPipeline.DoesNotExist:
-        raise Http404("Pipeline not found")
+        raise Http404(ERR_PIPELINE_NOT_FOUND)
 
     r = get_redis()
-    channel = PUBSUB_CHANNEL_TPL.format(pipeline_id=id)
+    channel = PUBSUB_CHANNEL_TPL.format(pipeline_id=pipeline_id)
 
     def event_stream():
         # 1) initial backlog from Redis Stream
-        yield from _stream_last_lines_from_redis_stream(r, id, BACKLOG_COUNT)
+        yield from _stream_last_lines_from_redis_stream(r, pipeline_id, BACKLOG_COUNT)
 
         # 2) subscribe for live updates
         pubsub = r.pubsub()
@@ -451,11 +442,9 @@ def stream_logs_sse_redis_based(request: HttpRequest, id: str) -> HttpResponse:
                     if isinstance(raw, str) and raw:
                         yield _sse_data(raw)
         finally:
-            try:
+            with suppress(Exception):  # S110
                 pubsub.unsubscribe(channel)
                 pubsub.close()
-            except Exception:
-                pass
 
     resp = StreamingHttpResponse(event_stream(), content_type="text/event-stream")
     # Avoid buffering by proxies/servers
@@ -463,12 +452,10 @@ def stream_logs_sse_redis_based(request: HttpRequest, id: str) -> HttpResponse:
     resp["X-Accel-Buffering"] = "no"    # for nginx
     return resp
 
-def deduplication_progress_json(request, id: str):
-    """
-    Return deduplication progress for a pipeline as JSON (per Test and overall).
-    Progress counts findings, not just tests with a boolean flag.
-    """
-    pipeline = get_object_or_404(AISTPipeline, id=id)
+
+def deduplication_progress_json(request, pipeline_id: str):
+    """Return deduplication progress for a pipeline as JSON (per Test and overall). Progress counts findings, not just tests with a boolean flag."""
+    pipeline = get_object_or_404(AISTPipeline, id=pipeline_id)
 
     tests = (
         pipeline.tests
@@ -518,12 +505,13 @@ def deduplication_progress_json(request, id: str):
         "tests": tests_payload,
     })
 
+
 @csrf_exempt
 def project_meta(request, pk: int):
     try:
         p = AISTProject.objects.get(pk=pk)
     except AISTProject.DoesNotExist:
-        raise Http404("Project not found")
+        raise Http404(ERR_PROJECT_NOT_FOUND)
 
     versions = [
         {"id": str(v.id), "label": str(v)}
@@ -534,11 +522,12 @@ def project_meta(request, pk: int):
         "versions": versions,
     })
 
+
 @csrf_exempt
 @require_http_methods(["GET"])
-def pipeline_enrich_progress_sse(request, id: str):
+def pipeline_enrich_progress_sse(request, pipeline_id: str):
     redis = get_redis()
-    key = f"aist:progress:{id}:enrich"
+    key = f"aist:progress:{pipeline_id}:enrich"
 
     def event_stream():
         last = None
