@@ -39,6 +39,15 @@ ARG appuser=defectdojo
 ENV appuser=${appuser}
 RUN \
   apt-get -y update && \
+  apt-get -y install ca-certificates curl && \
+  install -m 0755 -d /etc/apt/keyrings &&\
+  curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
+  chmod a+r /etc/apt/keyrings/docker.asc && \
+  echo \
+  "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/debian \
+  $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
+  tee /etc/apt/sources.list.d/docker.list > /dev/null && \
+  apt-get update && \
   # ugly fix to install postgresql-client without errors
   mkdir -p /usr/share/man/man1 /usr/share/man/man7 && \
   apt-get -y install --no-install-recommends \
@@ -49,7 +58,7 @@ RUN \
     dnsutils \
     xmlsec1 \
     git \
-    docker.io \
+    docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin \
     uuid-runtime \
     libpq-dev \
     # only required for the dbshell (used by the initializer job)

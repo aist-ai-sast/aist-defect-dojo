@@ -98,12 +98,13 @@ class PipelineArguments:
         script_path = self.project.script_path
         script_path = os.path.join(self.pipeline_path, script_path)
         if not os.path.isfile(script_path):
-            raise RuntimeError("Incorrrect script path for AIST pipeline.")
+            raise RuntimeError("Incorrect script path for AIST pipeline.")
         return script_path
 
     @property
     def output_dir(self) -> str:
-        output_dir = os.path.join(self.aist_path, self.project_name or "project", self.project_version['version'] or "default")
+        output_dir = os.path.join(self.aist_path, self.project_name or "project",
+                                  self.project_version.get('version', 'default'))
         return output_dir
 
     @property

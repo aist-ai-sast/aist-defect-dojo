@@ -85,19 +85,19 @@ services:
       PGADMIN_DEFAULT_PASSWORD: "${PGADMIN_DEFAULT_PASSWORD:-}"
     ports:
       - "5050:80"
-    volumes:
-      - pgadmin_data:/var/lib/pgadmin
-
-volumes:
-  defectdojo_postgres:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /root/work/aist/db
-  pgadmin_data:
-    driver: local
-    driver_opts:
-      type: none
-      o: bind
-      device: /root/work/aist/pgadmin_data
+#    volumes:
+#      - pgadmin_data:/var/lib/pgadmin
+#
+#volumes:
+#  defectdojo_postgres:
+#    driver: local
+#    driver_opts:
+#      type: none
+#      o: bind
+#      device: /root/work/aist/db
+#  pgadmin_data:
+#    driver: local
+#    driver_opts:
+#      type: none
+#      o: bind
+#      device: /root/work/aist/pgadmin_data
