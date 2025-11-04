@@ -187,6 +187,12 @@ class AISTProject(models.Model):
     def __str__(self) -> str:
         return self.product.name
 
+    def get_excluded_paths(self) -> list[str]:
+        excluded_paths = []
+        if self.profile:
+            excluded_paths.extend(self.profile.get("paths", {}).get("exclude", []))
+        return excluded_paths
+
 
 class VersionType(models.TextChoices):
     GIT_HASH = "GIT_HASH", "Git commit/hash"

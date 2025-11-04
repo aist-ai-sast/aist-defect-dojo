@@ -21,8 +21,9 @@ class LinkBuilder:
     """Build source links for GitHub/GitLab/Bitbucket; verify remote file existence (handles 429)."""
 
     def __init__(self, version_descriptor):
-        self.is_local_files = version_descriptor["type"] == "FILE_HASH"
+        self.is_local_files = version_descriptor.get("type", "FILE_HASH") == "FILE_HASH"
         self.version_id = version_descriptor["id"]
+        self.excluded_path = version_descriptor["excluded_paths"]
 
     @staticmethod
     def _scm_type(repo_url: str) -> str:
@@ -70,6 +71,13 @@ class LinkBuilder:
         if scm == "azure":
             return f"{repo_url.rstrip('/')}/?path=/{fp}&version=GC{ref}"
         return f"{repo_url.rstrip('/')}/blob/{ref}/{fp}"
+
+    def contains_excluded_path(self, url: str) -> bool:
+        for path in self.excluded_path:
+            if path in url:
+                return True
+        return False
+
 
     def remote_link_exists(self, url: str, timeout: int = 5, max_retries: int = 3) -> bool | None:
         """Return True if GET 200/3xx, False if 404, None for other errors. Retries on 429."""
@@ -154,17 +162,17 @@ def enrich_finding_task(
             link = linker.build(repo_url or "", file_path, ref)
             if not link:
                 return 0
-            exists = linker.remote_link_exists(link)
-            if exists:
+            acceptable = linker.remote_link_exists(link) and not linker.contains_excluded_path(link)
+            if acceptable:
                 DojoMeta.objects.update_or_create(
                     finding=f,
                     name="sourcefile_link",
                     value=link,
                 )
                 return 1
-            if exists is False:
+            if acceptable is False:
                 f.delete()
-                return 0
+                return 1
             return 0  # noqa: TRY300
         except Exception:
             return 0

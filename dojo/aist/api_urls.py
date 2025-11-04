@@ -17,7 +17,7 @@ urlpatterns = [
     path("pipelines/<str:pipeline_id>", PipelineAPI.as_view(), name="pipeline_status"),
     path("pipelines/", PipelineListAPI.as_view(), name="pipelines"),
     path(
-        "projects_version/<int:project_id>/files/blob/<path:subpath>",
+        "projects_version/<int:project_version_id>/files/blob/<path:subpath>",
         ProjectVersionFileBlobAPI.as_view(),
         name="project_version_file_blob",
     ),

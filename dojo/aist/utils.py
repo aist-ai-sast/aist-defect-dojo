@@ -196,7 +196,7 @@ def build_callback_url(pipeline_id: str) -> str:
 
 def build_project_version_file_blob(project_version_id: int, subpath: str) -> str:
     base = get_public_base_url()
-    path = reverse("dojo_aist_api:project_version_file_blob", kwargs={"id": project_version_id, "subpath": subpath})
+    path = reverse("dojo_aist_api:project_version_file_blob", kwargs={"project_version_id": project_version_id, "subpath": subpath})
     return urljoin(base + "/", path.lstrip("/"))
 
 

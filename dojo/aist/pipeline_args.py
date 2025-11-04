@@ -36,6 +36,7 @@ class PipelineArguments:
 
         configured_pipeline = getattr(settings, "AIST_PIPELINE_CODE_PATH", None)
         self.pipeline_path: Path | None = Path(configured_pipeline) if configured_pipeline else None
+        self.project_version["excluded_paths"] = self.project.get_excluded_paths()
 
     @classmethod
     def from_dict(cls, data: dict) -> PipelineArguments:
