@@ -954,7 +954,7 @@ INSTALLED_APPS = (
     "pgtrigger",
     "pghistory",
     "dojo.aist",
-    "django_github_app.apps.GitHubAppConfig"
+    "django_github_app.apps.GitHubAppConfig",
     "single_session",
 )
 
