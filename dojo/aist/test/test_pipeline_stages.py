@@ -199,6 +199,7 @@ def test_make_enrich_chord_initializes_progress():
             pipeline_id="pipeline-xyz",
             test_ids=[101],
             log_level="INFO",
+            project_version_descriptor={},
         )
         if sig is None:
             msg = MSG_EXPECTED_SIGNATURE  # satisfy EM101/TRY003

@@ -27,16 +27,7 @@ ERR_FILE_NOT_FOUND_IN_ARCHIVE = "File not found in version archive"
 
 
 class PipelineStartRequestSerializer(serializers.Serializer):
-
-    """Minimal payload to start a pipeline."""
-
-    aistproject_id = serializers.IntegerField(required=True)
-    project_version = serializers.CharField(required=True)
-    create_new_version_if_not_exist = serializers.BooleanField(required=True)
-
-
-class PipelineStartResponseSerializer(serializers.Serializer):
-    id = serializers.CharField()
+    project_version_id = serializers.IntegerField(required=True)
 
 
 class PipelineResponseSerializer(serializers.Serializer):
@@ -56,39 +47,31 @@ class PipelineStartAPI(APIView):
     @extend_schema(
         request=PipelineStartRequestSerializer,
         responses={
-            201: OpenApiResponse(PipelineStartResponseSerializer, description="Pipeline created"),
-            400: OpenApiResponse(description="Validation error"),
-            404: OpenApiResponse(description="Project or project version not found"),
+            201: OpenApiResponse(PipelineResponseSerializer, description="Pipeline created"),
+            404: OpenApiResponse(description="Project version not found"),
         },
         examples=[
             OpenApiExample(
-                "Basic start",
-                value={"aistproject_id": 42, "project_version": "master", "create_new_version_if_not_exist": True},
+                "Start by version id",
+                value={"project_version_id": 123},
                 request_only=True,
             ),
         ],
         tags=["aist"],
         summary="Start pipeline",
-        description=(
-            "Creates and starts AIST Pipeline for the given AISTProject with default parameters."
-        ),
+        description="Creates and starts AIST Pipeline for the given existing AISTProjectVersion.",
     )
     def post(self, request, *args, **kwargs) -> Response:
+        # validate body
         serializer = PipelineStartRequestSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
 
-        project_id = serializer.validated_data["aistproject_id"]
-        project = get_object_or_404(AISTProject, pk=project_id)
+        pv_id = serializer.validated_data["project_version_id"]
+        # we take project from version to avoid double inputs
+        project_version = get_object_or_404(AISTProjectVersion, pk=pv_id)
+        project = project_version.project
 
-        project_version_hash = serializer.validated_data["project_version"]
-        create_new_version = serializer.validated_data["create_new_version_if_not_exist"]
-
-        if create_new_version:
-            project_version, _created = AISTProjectVersion.objects.get_or_create(
-                project=project, version=project_version_hash)
-        else:
-            project_version = get_object_or_404(AISTProjectVersion, project=project, version=project_version_hash)
-
+        # create pipeline in transaction
         with transaction.atomic():
             p = create_pipeline_object(project, project_version, None)
 
@@ -96,7 +79,9 @@ class PipelineStartAPI(APIView):
         p.run_task_id = async_result.id
         p.save(update_fields=["run_task_id"])
 
-        out = PipelineStartResponseSerializer({"id": p.id})
+        out = PipelineResponseSerializer(
+            {"id": p.id, "status": p.status, "response_from_ai": p.response_from_ai, "created": p.created,
+             "updated": p.updated})
         return Response(out.data, status=status.HTTP_201_CREATED)
 
 

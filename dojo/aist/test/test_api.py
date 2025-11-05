@@ -92,47 +92,42 @@ class AISTApiTests(TestCase):
     @patch("dojo.aist.api.run_sast_pipeline")
     def test_pipeline_start_happy_path(self, run_task_mock):
         """POST /pipeline/start returns 201 with pipeline id and triggers Celery task."""
-        # Mock Celery .delay() to avoid running real task
+        # mock celery
         async_res = Mock()
         async_res.id = "celery-12345"
         run_task_mock.delay.return_value = async_res
 
-        url = reverse("dojo_aist_api:pipeline_start")  # /aist/pipeline/start
-        payload = {"aistproject_id": self.project.id, "project_version": "test", "create_new_version_if_not_exist": True}
+        # we MUST have a project version now
+        pv = AISTProjectVersion.objects.create(
+            project=self.project,
+            version_type=VersionType.GIT_HASH,
+            version="main",
+        )
+
+        url = reverse("dojo_aist_api:pipeline_start")
+        payload = {"project_version_id": pv.id}
         resp = self.client.post(url, payload, format="json")
         self.assertEqual(resp.status_code, 201)
+
         pid = resp.json().get("id")
         self.assertTrue(pid)
 
-        # Pipeline must be created in DB
+        # pipeline exists
         p = AISTPipeline.objects.get(id=pid)
         self.assertEqual(p.project_id, self.project.id)
-        # On bootstrap your code sets FINISHED before task actually begins (matches api.py)
+        self.assertEqual(p.project_version_id, pv.id)
         self.assertEqual(p.status, AISTStatus.FINISHED)
 
-        # AISTProject version must be created in DB
-        AISTProjectVersion.objects.get(project=self.project, version="test")
-
-        # Celery task must be triggered with (pipeline_id, params)
+        # celery called
         run_task_mock.delay.assert_called_once()
         args, _kwargs = run_task_mock.delay.call_args
-        self.assertEqual(args[0], pid)  # pipeline_id
-        # NOTE: in current code api.py passes None as params.
-        # If you change it to {}, relax this assertion accordingly.
+        self.assertEqual(args[0], pid)
         self.assertIsNone(args[1])
 
-    def test_pipeline_start_404_on_unknown_project(self):
-        """POST /pipeline/start with non-existing project must return 404."""
-        url = reverse("dojo_aist_api:pipeline_start")
-        payload = {"aistproject_id": 999999, "project_version": "test", "create_new_version_if_not_exist": False}
-        resp = self.client.post(url, payload, format="json")
-        self.assertEqual(resp.status_code, 404)
-
     def test_pipeline_start_404_on_unknown_version(self):
-        """POST /pipeline/start with non-existing version must return 404."""
+        """POST /pipeline/start with non-existing project_version_id must return 404."""
         url = reverse("dojo_aist_api:pipeline_start")
-        payload = {"aistproject_id": self.project.id, "project_version": "lalalala",
-                   "create_new_version_if_not_exist": False}
+        payload = {"project_version_id": 999999}
         resp = self.client.post(url, payload, format="json")
         self.assertEqual(resp.status_code, 404)
 

@@ -118,7 +118,7 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
             repo = pipeline.project.repository
 
         logger.info(f"Project version: {params.project_version}")
-        if params.project_version:
+        if params.project_version and "id" in params.project_version:
             project_version = AISTProjectVersion.objects.get(pk=params.project_version["id"])
             project_version.ensure_extracted()
 

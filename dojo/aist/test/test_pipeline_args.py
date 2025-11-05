@@ -70,7 +70,7 @@ class PipelineArgsProfileTests(TestCase):
 
         args = PipelineArguments(
             project=project,
-            project_version="123",
+            project_version={},
             selected_analyzers=[],     # force reading from config
             selected_languages=["javascript"],  # will be merged with project languages
             log_level="INFO",
@@ -107,7 +107,7 @@ class PipelineArgsProfileTests(TestCase):
 
         args = PipelineArguments(
             project=project,
-            project_version="123",
+            project_version={},
             selected_analyzers=[],     # force reading from config
             selected_languages=[],
             log_level="INFO",
