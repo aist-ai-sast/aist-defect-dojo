@@ -92,8 +92,8 @@ COPY \
 COPY wsgi.py manage.py ./
 COPY dojo/ ./dojo/
 
-COPY sast-combinator/sast-pipeline/ /app/pipeline
-ENV AIST_PIPELINE_CODE_PATH=/app/pipeline
+COPY sast-combinator/sast-pipeline/ /app/sast-combinator/sast-pipeline
+ENV AIST_PIPELINE_CODE_PATH=/app/sast-combinator/sast-pipeline
 
 # Add extra fixtures to docker image which are loaded by the initializer
 COPY docker/extra_fixtures/* /app/dojo/fixtures/

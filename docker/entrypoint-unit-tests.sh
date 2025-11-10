@@ -79,6 +79,9 @@ python3 manage.py migrate
 echo "Unit Tests"
 echo "------------------------------------------------------------"
 
+echo "env variable value: $AIST_PIPELINE_CODE_PATH"
+ls /app/sast-combinator/sast-pipeline
+
 # Removing parallel and shuffle for now to maintain stability
 python3 manage.py test unittests --keepdb --no-input --exclude-tag="non-parallel" --exclude-tag="transactional" || {
     exit 1;

@@ -80,8 +80,8 @@ COPY docker/wait-for-it.sh \
 
 COPY tests/ ./tests/
 
-COPY sast-combinator/sast-pipeline/ /app/pipeline
-ENV AIST_PIPELINE_CODE_PATH=/app/pipeline
+COPY sast-combinator/sast-pipeline/ /app/sast-combinator/sast-pipeline
+ENV AIST_PIPELINE_CODE_PATH=/app/sast-combinator/sast-pipeline
 
 RUN chmod -R 0777 /app
 

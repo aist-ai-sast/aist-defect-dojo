@@ -34,6 +34,9 @@ if [ -n "${DD_UWSGI_MAX_FD}" ]; then
     DD_UWSGI_EXTRA_ARGS="${DD_UWSGI_EXTRA_ARGS} --max-fd ${DD_UWSGI_MAX_FD}"
 fi
 
+ls /app/sast-pipeline
+echo "$AIST_PIPELINE_CODE_PATH"
+
 exec uwsgi \
   "--${DD_UWSGI_MODE}" "${DD_UWSGI_ENDPOINT}" \
   --protocol uwsgi \
