@@ -23,6 +23,17 @@ from .models import AISTPipeline, AISTStatus
 _logger = logging.getLogger(__name__)
 
 
+def get_project_build_path(project_name, project_version):
+    project_build_path = getattr(settings, "AIST_PROJECTS_BUILD_DIR", None)
+    if not project_build_path:
+        raise RuntimeError("AIST_PROJECTS_BUILD_DIR is not set")
+
+    project_build_path = str(
+        Path(project_build_path) / (project_name or "project") / (project_version or "default"),
+    )
+    return project_build_path
+
+
 def _flatten_single_root_directory(root: Path) -> None:
     """If extraction produced a single top-level directory, move its contents up one level and remove it."""
     if not root.exists():
@@ -202,12 +213,6 @@ def get_public_base_url() -> str:
 def build_callback_url(pipeline_id: str) -> str:
     base = get_public_base_url()
     path = reverse("dojo_aist:pipeline_callback", kwargs={"pipeline_id": str(pipeline_id)})
-    return urljoin(base + "/", path.lstrip("/"))
-
-
-def build_project_version_file_blob(project_version_id: int, subpath: str) -> str:
-    base = get_public_base_url()
-    path = reverse("dojo_aist_api:project_version_file_blob", kwargs={"project_version_id": project_version_id, "subpath": subpath})
     return urljoin(base + "/", path.lstrip("/"))
 
 

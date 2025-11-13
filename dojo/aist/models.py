@@ -8,15 +8,16 @@ import tarfile
 import zipfile
 from contextlib import suppress
 from pathlib import Path
+from urllib.parse import quote
 
 from django.conf import settings
-from encrypted_model_fields.fields import EncryptedCharField
 from django.core.exceptions import ValidationError
 from django.core.files.storage import default_storage
 from django.core.validators import RegexValidator
 from django.db import models, transaction
 from django.utils import timezone
 from django_github_app.models import Installation
+from encrypted_model_fields.fields import EncryptedCharField
 
 from dojo.models import Finding, Product, Test
 
@@ -47,7 +48,7 @@ class RepositoryInfo(models.Model):
     class Meta:
         indexes = [models.Index(fields=["repo_owner", "repo_name", "type"])]
 
-    def _get_binding(self):
+    def get_binding(self):
         mapping = {
             ScmType.GITHUB: "github_binding",
             ScmType.GITLAB: "gitlab_binding",
@@ -57,18 +58,18 @@ class RepositoryInfo(models.Model):
 
     @property
     def clone_url(self) -> str:
-        binding = self._get_binding()
+        binding = self.get_binding()
         if binding:
             url = binding.build_clone_url(self)
             if url:
                 return url
-        return f"{self._host()}/{self.repo_full}.git"
+        return f"{self.host()}/{self.repo_full}.git"
 
     @property
     def repo_full(self) -> str:
         return f"{self.repo_owner}/{self.repo_name}"
 
-    def _host(self) -> str:
+    def host(self) -> str:
         if self.base_url:
             return self.base_url.rstrip("/")
         return "https://github.com" if self.type == ScmType.GITHUB else "https://gitlab.com"
@@ -82,8 +83,8 @@ class ScmGithubBinding(models.Model):
     installation_id = models.BigIntegerField(null=True, blank=True, db_index=True)
     base_api_url = models.CharField(max_length=255, blank=True, default="")  # e.g. https://github.mycorp.com/api/v3
 
-    def _host(self, scm: RepositoryInfo) -> str:
-        return scm._host()
+    def host(self, scm: RepositoryInfo) -> str:
+        return scm.host()
 
     def build_clone_url(self, scm: RepositoryInfo) -> str | None:
         # sync option
@@ -96,7 +97,31 @@ class ScmGithubBinding(models.Model):
             logger.warning("No installation object for GitHub binding")
             return None
         token = inst.get_access_token()
-        return f"{self._host(scm).replace('https://', 'https://x-access-token:' + token + '@')}/{scm.repo_full}.git"
+        return f"{self.host(scm).replace('https://', 'https://x-access-token:' + token + '@')}/{scm.repo_full}.git"
+
+    def build_blob_url(self, scm: RepositoryInfo, ref: str, path: str) -> str:
+        # https://github.com/owner/repo/blob/<ref>/<path>
+        fp = path.lstrip("/").replace("\\", "/")
+        return f"{self.host(scm).rstrip('/')}/{scm.repo_full}/blob/{ref}/{fp}"
+
+    def build_raw_url(self, scm: RepositoryInfo, ref: str, path: str) -> str:
+        # https://raw.githubusercontent.com/owner/repo/<ref>/<path>
+        fp = path.lstrip("/").replace("\\", "/")
+        host = self.host(scm)
+        if "github.com" in host:
+            raw_host = "https://raw.githubusercontent.com"
+        else:
+            return f"{host.rstrip('/')}/{scm.repo_full}/raw/{ref}/{fp}"
+        return f"{raw_host.rstrip('/')}/{scm.repo_full}/{ref}/{fp}"
+
+    def get_auth_headers(self) -> dict[str, str]:
+        if not self.installation_id:
+            return {}
+        inst = Installation.objects.filter(installation_id=self.installation_id).first()
+        if not inst:
+            return {}
+        token = inst.get_access_token()
+        return {"Authorization": f"token {token}"}
 
 
 class ScmGitlabBinding(models.Model):
@@ -108,8 +133,8 @@ class ScmGitlabBinding(models.Model):
     personal_access_token = EncryptedCharField(max_length=255, blank=True, default="")  # TODO: change to vault
     # or: ci_job_token = models.CharField(...), oauth_app_id, oauth_secret, и т.п.
 
-    def _host(self, scm: RepositoryInfo) -> str:
-        return scm._host()
+    def host(self, scm: RepositoryInfo) -> str:
+        return scm.host()
 
     def build_clone_url(self, scm: RepositoryInfo) -> str | None:
         token = (self.personal_access_token or "").strip()
@@ -117,7 +142,26 @@ class ScmGitlabBinding(models.Model):
             return None
         # GitLab HTTPS clone with PAT:
         # https://oauth2:<PAT>@gitlab.com/owner/repo.git
-        return f"{self._host(scm).replace('https://', 'https://oauth2:' + token + '@')}/{scm.repo_full}.git"
+        return f"{self.host(scm).replace('https://', 'https://oauth2:' + token + '@')}/{scm.repo_full}.git"
+
+    def build_blob_url(self, scm: RepositoryInfo, ref: str, path: str) -> str:
+        # https://gitlab.com/group/repo/-/blob/<ref>/<path>
+        fp = path.lstrip("/").replace("\\", "/")
+        return f"{self.host(scm).rstrip('/')}/{scm.repo_full}/-/blob/{ref}/{fp}"
+
+    def build_raw_url(self, scm: RepositoryInfo, ref: str, path: str) -> str:
+        """Return GitLab API v4 raw-file URL (no redirects, works with PRIVATE-TOKEN)."""
+        fp = quote(path.lstrip("/").replace("\\", "/"), safe="")          # encode path
+        proj = quote(scm.repo_full, safe="")                               # encode owner/repo
+        ref_q = quote(ref or "master", safe="")                            # encode ref
+        base = scm.host()                                                 # e.g. https://gitlab.com
+        api_base = f"{base}/api/v4"
+        return f"{api_base}/projects/{proj}/repository/files/{fp}/raw?ref={ref_q}"
+
+    def get_auth_headers(self) -> dict[str, str]:
+        """Return API auth header for GitLab."""
+        tok = (self.personal_access_token or "").strip()
+        return {"PRIVATE-TOKEN": tok} if tok else {}
 
 
 class PullRequest(models.Model):

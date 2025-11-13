@@ -28,6 +28,9 @@
                                 <div class="col-sm-9 d-flex gap-2">
                                     <div class="flex-grow-1">
                                         {{ form.project_version }}
+                                        <div id="version-required-hint" class="form-text text-danger small d-none">
+                                            Choose a version
+                                        </div>
                                     </div>
                                     <button type="button"
                                             class="btn btn-outline-primary"
@@ -111,7 +114,7 @@
                             </div>
 
                             <div class="text-end mt-3">
-                                <button type="submit" class="btn btn-primary">Start</button>
+                                <button type="submit" class="btn btn-primary" id="btn-start" disabled>Start</button>
                             </div>
                         </form>
                         <style>
@@ -342,12 +345,32 @@
                 var selProject = form.querySelector('select[name="{{ form.project.html_name }}"]');
                 var selTime = form.querySelector('select[name="{{ form.time_class_level.html_name }}"]');
                 var selVersion = form.querySelector('select[name="{{ form.project_version.html_name }}"]');
+                var btnStart = form.querySelector('#btn-start');
+                var versionWarn = document.getElementById('version-required-hint');
                 var langsWrap = document.getElementById("languages-group");
 
                 var DEFAULT_EMPTY_LABEL = "Use default (latest on default branch)";
                 var metaUrlTemplate = "{% url 'dojo_aist:project_meta' pk=0 %}";
                 var defaultsUrl = "{% url 'dojo_aist:default_analyzers' %}";
                 var createUrlTpl = "{% url 'dojo_aist:project_version_create' project_id=0 %}";
+
+
+                function getSelectValue(el) {
+                    if (!el) return "";
+                    if (isSelectpickerApplied(el) && window.jQuery) {
+                        try {
+                            return window.jQuery(el).selectpicker('val') || "";
+                        } catch (e) {
+                        }
+                    }
+                    return el.value || "";
+                }
+                function validateVersionRequired() {
+                    var val = getSelectValue(selVersion);
+                    var hasVal = !!val;
+                    if (btnStart) btnStart.disabled = !hasVal;
+                    if (versionWarn) versionWarn.classList.toggle('d-none', hasVal);
+                }
 
                 function languageCheckboxes() {
                     return langsWrap ? langsWrap.querySelectorAll('input[name="{{ form.languages.html_name }}"]') : [];
@@ -377,6 +400,7 @@
 
                 function rebuildProjectVersionSelect(versionsRaw, projectId) {
                     if (!selVersion) return;
+                    selVersion.required = true;
 
                     if (document.activeElement === selVersion) {
                         try {
@@ -437,6 +461,31 @@
 
                     var fs = selVersion.closest ? selVersion.closest("fieldset") : null;
                     if (fs && fs.hasAttribute("disabled")) fs.removeAttribute("disabled");
+
+                    if (list.length > 0) {
+                        var firstId = String(list[0].id);
+                        if (isSelectpickerApplied(selVersion)) {
+                            try {
+                                window.jQuery(selVersion).selectpicker('val', firstId).selectpicker('render').selectpicker('refresh');
+                            } catch (e) {
+                            }
+                        } else {
+                            selVersion.value = firstId;
+                        }
+                    } else {
+
+                        if (isSelectpickerApplied(selVersion)) {
+                            try {
+                                window.jQuery(selVersion).selectpicker('val', '').selectpicker('render').selectpicker('refresh');
+                            } catch (e) {
+                            }
+                        } else {
+                            selVersion.value = '';
+                        }
+                    }
+
+
+                    validateVersionRequired();
                 }
 
                 function fetchProjectMeta(projectId, done) {
@@ -480,9 +529,11 @@
                         method: "POST",
                         body: fd,
                         credentials: "same-origin",
-                        headers: { "X-CSRFToken": getCSRFToken(form) }
+                        headers: {"X-CSRFToken": getCSRFToken(form)}
                     })
-                        .then(function (r) { return r.json(); })
+                        .then(function (r) {
+                            return r.json();
+                        })
                         .then(function (data) {
                             var sig = form.querySelector('input[name="{{ form.selection_signature.html_name }}"]');
                             if (sig && data && data.signature) sig.value = data.signature;
@@ -496,7 +547,8 @@
                                 analyzerBoxes[k].checked = !!wanted[analyzerBoxes[k].value];
                             }
                         })
-                        .catch(function(){});
+                        .catch(function () {
+                        });
                 }
 
                 function onProjectChanged() {
@@ -519,7 +571,8 @@
                     if (hasSelectpicker()) {
                         try {
                             window.jQuery(selTime).off("changed.bs.select.aist").on("changed.bs.select.aist", collectAndRefreshAnalyzers);
-                        } catch (e) {}
+                        } catch (e) {
+                        }
                     }
                 }
                 var boxes = languageCheckboxes();
@@ -571,7 +624,10 @@
                         typeSel.setAttribute('data-live-search', 'false');
                         typeSel.style.width = '100%';
                         if (hasSelectpicker()) {
-                            try { window.jQuery(typeSel).selectpicker('render'); } catch (e) {}
+                            try {
+                                window.jQuery(typeSel).selectpicker('render');
+                            } catch (e) {
+                            }
                         }
                     }
                     if (inpText) inpText.classList.add('form-control');
@@ -620,7 +676,7 @@
                         const all = new Blob(chunksData);
                         const buf = await all.arrayBuffer();
                         const hash = await crypto.subtle.digest('SHA-256', buf);
-                        const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2,'0')).join('');
+                        const hex = Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, '0')).join('');
                         return hex;
                     }
 
@@ -642,7 +698,9 @@
                                 setFileProgress(false, '');
                             } catch (e) {
                                 setFileProgress(true, 'Hash failed, will compute on server…');
-                                setTimeout(function(){ setFileProgress(false, ''); }, 1500);
+                                setTimeout(function () {
+                                    setFileProgress(false, '');
+                                }, 1500);
                             }
                         });
                     }
@@ -695,8 +753,12 @@
                     }
 
                     function clearClientErrors(root) {
-                        root.querySelectorAll('.is-invalid').forEach(function(n){ n.classList.remove('is-invalid'); });
-                        root.querySelectorAll('.invalid-feedback.client').forEach(function(n){ n.remove(); });
+                        root.querySelectorAll('.is-invalid').forEach(function (n) {
+                            n.classList.remove('is-invalid');
+                        });
+                        root.querySelectorAll('.invalid-feedback.client').forEach(function (n) {
+                            n.remove();
+                        });
                     }
 
                     function collectExistingVersionsForSelectedProject() {
@@ -717,8 +779,8 @@
                         if (!btnSubmitCreate) return;
                         btnSubmitCreate.disabled = !!busy;
                         btnSubmitCreate.innerHTML = busy
-                          ? '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...'
-                          : 'Create';
+                            ? '<span class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span> Saving...'
+                            : 'Create';
                     }
 
                     clearClientErrors(createBody);
@@ -758,13 +820,17 @@
                         credentials: "same-origin",
                         body: fd
                     })
-                        .then(function(r){ return r.json(); })
-                        .then(function(data){
+                        .then(function (r) {
+                            return r.json();
+                        })
+                        .then(function (data) {
                             if (data.ok) {
                                 var metaUrl = metaUrlTemplate.replace("/0/", "/" + pid + "/");
                                 fetch(metaUrl)
-                                    .then(function(r){ return r.json(); })
-                                    .then(function(meta){
+                                    .then(function (r) {
+                                        return r.json();
+                                    })
+                                    .then(function (meta) {
                                         if (meta.versions && selVersion) {
                                             selVersion.innerHTML = "";
                                             selVersion.add(new Option("Use default (latest on default branch)", ""));
@@ -785,7 +851,7 @@
                                             selVersion.dispatchEvent(evt);
                                         }
                                     })
-                                    .finally(function(){
+                                    .finally(function () {
                                         toggleSubmitBusy(false);
                                         bsModal.hide();
                                     });
@@ -798,11 +864,23 @@
                                 toggleSubmitBusy(false);
                             }
                         })
-                        .catch(function(){
+                        .catch(function () {
                             createBody.innerHTML = '<div class="alert alert-danger">Error while saving version.</div>';
                             toggleSubmitBusy(false);
                         });
                 }
+
+                if (selVersion) {
+                    selVersion.addEventListener('change', validateVersionRequired);
+                    if (hasSelectpicker()) {
+                        try {
+                            window.jQuery(selVersion).off('changed.bs.select.aist-ver').on('changed.bs.select.aist-ver', validateVersionRequired);
+                        } catch (e) {
+                        }
+                    }
+                }
+
+                validateVersionRequired();
 
                 if (btnOpenCreate) {
                     btnOpenCreate.addEventListener("click", function () {

@@ -8,7 +8,25 @@ from django.dispatch import receiver
 from dojo.models import Finding, Test
 from dojo.signals import finding_deduplicated
 
-from .models import ProcessedFinding, TestDeduplicationProgress
+from .models import AISTProject, AISTProjectVersion, ProcessedFinding, TestDeduplicationProgress, VersionType
+
+
+@receiver(post_save, sender=AISTProject, dispatch_uid="aistproject_autoversion_master")
+def create_default_master_version(sender, instance: AISTProject, created: bool, **kwargs):
+    if not created:
+        return
+
+    def _create_if_absent():
+        if AISTProjectVersion.objects.filter(project=instance).exists():
+            return
+
+        AISTProjectVersion.objects.get_or_create(
+            project=instance,
+            version="master",
+            defaults={"version_type": VersionType.GIT_HASH},
+        )
+
+    transaction.on_commit(_create_if_absent)
 
 
 @worker_process_init.connect

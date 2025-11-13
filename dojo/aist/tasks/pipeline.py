@@ -1,16 +1,13 @@
 from __future__ import annotations
 
-from pathlib import Path
-
 from celery import shared_task
-from django.conf import settings
 from django.db import transaction
 from django.utils import timezone
 
 from dojo.aist.logging_transport import _install_db_logging, get_redis
 from dojo.aist.models import AISTPipeline, AISTProjectVersion, AISTStatus
 from dojo.aist.pipeline_args import PipelineArguments
-from dojo.aist.utils import _import_sast_pipeline_package, finish_pipeline
+from dojo.aist.utils import _import_sast_pipeline_package, finish_pipeline, get_project_build_path
 from dojo.models import Finding, Test
 
 from .enrich import make_enrich_chord
@@ -35,37 +32,22 @@ MSG_PROJECT_BUILD_PATH_NOT_SET = "Project build path for AIST is not setup"
 
 def postprocess_findings(
     pipeline_id,
-    repo_path,
     finding_ids,
     trim_path,
     test_ids,
     log_level,
     project_version_descriptor,
 ):
-    local_run = project_version_descriptor.get("type", "FILE_HASH") == "FILE_HASH"
-    repo_params = {}
-    if not local_run:
-        try:
-            repo_params = read_repo_params(repo_path)
-        except Exception as exc:
-            logger = _install_db_logging(pipeline_id, log_level)
-            logger.error("Failed to read repository info from %s: %s", repo_path, exc)
-            return None
-
     with transaction.atomic():
         pipeline = AISTPipeline.objects.select_for_update().get(id=pipeline_id)
         pipeline.status = AISTStatus.FINDING_POSTPROCESSING
         pipeline.save(update_fields=["status", "updated"])
 
-    repo_url = getattr(repo_params, "repo_url", "") or ""
-    ref = getattr(repo_params, "commit_hash", None) or getattr(repo_params, "branch_tag", None)
     redis = get_redis()
     redis.hset(f"aist:progress:{pipeline_id}:enrich", mapping={"total": len(finding_ids), "done": 0})
 
     return make_enrich_chord(
         finding_ids=finding_ids,
-        repo_url=repo_url,
-        ref=ref,
         trim_path=trim_path,
         pipeline_id=pipeline_id,
         test_ids=test_ids,
@@ -137,13 +119,8 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
         if repo:
             params.additional_environments = {"REPO_URL": repo.clone_url}
 
-        project_build_path = getattr(settings, "AIST_PROJECTS_BUILD_DIR", None)
-        if not project_build_path:
-            raise RuntimeError(MSG_PROJECT_BUILD_PATH_NOT_SET)
-
-        project_build_path = str(
-            Path(project_build_path) / (project_name or "project") / (params.project_version.get("version", "default")),
-        )
+        project_build_path = get_project_build_path(project_name or "project",
+                                                    params.project_version.get("version", "default"))
 
         logger.info("Starting configure_project_run_analyses")
         launch_data = configure_project_run_analyses(
@@ -211,7 +188,7 @@ def run_sast_pipeline(self, pipeline_id: str, params: dict) -> None:
         else:
             raise self.replace(
                 postprocess_findings(
-                    pipeline_id, repo_path, finding_ids, trim_path, test_ids, log_level, project_version,
+                    pipeline_id, finding_ids, trim_path, test_ids, log_level, project_version,
                 ),
             )
     except Ignore:

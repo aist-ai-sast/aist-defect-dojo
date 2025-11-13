@@ -1,101 +1,16 @@
 import os
-import time
 from math import ceil
 from typing import Any
-from urllib.parse import urlparse
 
-import requests
 from celery import chain, chord, shared_task
 from django.db import transaction
 
+from dojo.aist.link_builder import LinkBuilder
 from dojo.aist.logging_transport import _install_db_logging, get_redis
 from dojo.aist.models import AISTPipeline, AISTStatus
-from dojo.aist.utils import build_project_version_file_blob
 from dojo.models import DojoMeta, Finding, Test
 
 from .dedup import watch_deduplication
-
-
-class LinkBuilder:
-
-    """Build source links for GitHub/GitLab/Bitbucket; verify remote file existence (handles 429)."""
-
-    def __init__(self, version_descriptor):
-        self.is_local_files = version_descriptor.get("type", "FILE_HASH") == "FILE_HASH"
-        self.version_id = version_descriptor["id"]
-        self.excluded_path = version_descriptor["excluded_paths"]
-
-    @staticmethod
-    def _scm_type(repo_url: str) -> str:
-        host = urlparse(repo_url).netloc.lower()
-        if "github" in host:
-            return "github"
-        if "gitlab" in host:
-            return "gitlab"
-        if "bitbucket.org" in host:
-            return "bitbucket-cloud"
-        if "bitbucket" in host:
-            return "bitbucket-server"
-        if "gitea" in host:
-            return "gitea"
-        if "codeberg" in host:
-            return "codeberg"
-        if "dev.azure.com" in host or "visualstudio.com" in host:
-            return "azure"
-        return "generic"
-
-    def build(self, repo_url: str, file_path: str, ref: str | None) -> str | None:
-        if not file_path:
-            return None
-
-        file_path = file_path.replace("file://", "")
-        fp = file_path.lstrip("/")
-        if self.is_local_files:
-            return build_project_version_file_blob(self.version_id, fp)
-
-        if not repo_url:
-            return None
-
-        scm = self._scm_type(repo_url)
-        ref = ref or "master"
-        if scm == "github":
-            return f"{repo_url.rstrip('/')}/blob/{ref}/{fp}"
-        if scm == "gitlab":
-            return f"{repo_url.rstrip('/')}/-/blob/{ref}/{fp}"
-        if scm == "bitbucket-cloud":
-            return f"{repo_url.rstrip('/')}/src/{ref}/{fp}"
-        if scm == "bitbucket-server":
-            return f"{repo_url.rstrip('/')}/browse/{fp}?at={ref}"
-        if scm in {"gitea", "codeberg"}:
-            return f"{repo_url.rstrip('/')}/src/{ref}/{fp}"
-        if scm == "azure":
-            return f"{repo_url.rstrip('/')}/?path=/{fp}&version=GC{ref}"
-        return f"{repo_url.rstrip('/')}/blob/{ref}/{fp}"
-
-    def contains_excluded_path(self, url: str) -> bool:
-        return any(path in url for path in self.excluded_path)
-
-    def remote_link_exists(self, url: str, timeout: int = 5, max_retries: int = 3) -> bool | None:
-        """Return True if GET 200/3xx, False if 404, None for other errors. Retries on 429."""
-        if self.is_local_files:
-            return True
-
-        try:
-            r = requests.get(url, allow_redirects=True, timeout=timeout)
-        except requests.RequestException:
-            return None
-        else:
-            if r.status_code == 429 and max_retries > 0:
-                retry = int(r.headers.get("Retry-After", "1"))
-                time.sleep(retry)
-                return self.remote_link_exists(url, timeout, max_retries - 1)
-            if r.status_code == 200:
-                return True
-            if 300 <= r.status_code < 400:
-                return True
-            if r.status_code == 404:
-                return False
-            return None
 
 
 @shared_task(bind=True)
@@ -135,8 +50,6 @@ def after_upload_enrich_and_watch(results: list[int],
 @shared_task(bind=False)
 def enrich_finding_task(
     finding_id: int,
-    repo_url: str,
-    ref: str | None,
     trim_path: str,
     project_version_descriptor: dict[str, Any],
 ) -> int:
@@ -155,21 +68,20 @@ def enrich_finding_task(
                 file_path = f.file_path
 
             linker = LinkBuilder(project_version_descriptor)
-            link = linker.build(repo_url or "", file_path, ref)
+            link = linker.build(file_path)
             if not link:
                 return 0
-            acceptable = linker.remote_link_exists(link) and not linker.contains_excluded_path(link)
+            acceptable = not linker.contains_excluded_path(link)
             if acceptable:
                 DojoMeta.objects.update_or_create(
                     finding=f,
                     name="sourcefile_link",
                     value=link,
                 )
-                return 1
-            if acceptable is False:
+            else:
                 f.delete()
-                return 1
-            return 0  # noqa: TRY300
+            return 1
+
         except Exception:
             return 0
 
@@ -177,15 +89,13 @@ def enrich_finding_task(
 @shared_task(bind=False)
 def enrich_finding_batch(
     finding_ids: list[int],
-    repo_url: str,
-    ref: str | None,
     trim_path: str,
     project_version_descriptor: dict[str, Any],
 ) -> int:
     processed = 0
     for fid in finding_ids:
         try:
-            processed += int(enrich_finding_task.run(fid, repo_url, ref, trim_path, project_version_descriptor) or 0)
+            processed += int(enrich_finding_task.run(fid, trim_path, project_version_descriptor) or 0)
         except Exception:  # noqa: S112
             continue
     return processed
@@ -194,8 +104,6 @@ def enrich_finding_batch(
 def make_enrich_chord(
     *,
     finding_ids: list[int],
-    repo_url: str,
-    ref: str | None,
     trim_path: str,
     pipeline_id: str,
     test_ids: list[int],
@@ -237,7 +145,7 @@ def make_enrich_chord(
     # 4) Build the chord header: one batch chain per chunk.
     header = [
         chain(
-            enrich_finding_batch.s(chunk, repo_url, ref, trim_path, project_version_descriptor),
+            enrich_finding_batch.s(chunk, trim_path, project_version_descriptor),
             report_enrich_done.s(pipeline_id),
         )
         for chunk in chunks
