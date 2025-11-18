@@ -240,6 +240,13 @@
                                             </a>
                                         </li>
                                         <li>
+                                        <a href="{% url 'dojo_aist:aist_project_list' %}" aria-expanded="false"
+                                               aria-label="AIST Projects">
+                                                <i class="fa-solid fa-diagram-project fa-fw"></i>
+                                                <span>{% trans "AIST Projects" %}</span>
+                                            </a>
+                                        </li>
+                                        <li>
                                             <a id="product-side-menu" href="{% url 'product' %}" aria-expanded="false" aria-label="{{ labels.ASSET_PLURAL_LABEL }}">
                                                 <i class="fa-solid fa-list-ul fa-fw"></i>
                                                 <span>{{ labels.ASSET_PLURAL_LABEL }}</span>

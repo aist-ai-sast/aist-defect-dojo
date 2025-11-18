@@ -23,14 +23,13 @@
                                     {% endif %}
                                 </div>
                             </div>
+
+                            {# Project version + create button #}
                             <div class="mb-3 row align-items-start">
                                 <label class="col-sm-3 col-form-label">{{ form.project_version.label }}</label>
                                 <div class="col-sm-9 d-flex gap-2">
                                     <div class="flex-grow-1">
                                         {{ form.project_version }}
-                                        <div id="version-required-hint" class="form-text text-danger small d-none">
-                                            Choose a version
-                                        </div>
                                     </div>
                                     <button type="button"
                                             class="btn btn-outline-primary"
@@ -118,7 +117,7 @@
                             </div>
                         </form>
                         <style>
-                            /* фиксируем заголовок и крестик в одной линии */
+                            /* Keep modal title and close button on one line */
                             #modalCreateVersion .modal-header {
                                 display: flex;
                                 align-items: center;
@@ -126,7 +125,6 @@
                                 padding: 10px 15px;
                             }
 
-                            /* заголовок остаётся слева */
                             #modalCreateVersion .modal-title {
                                 flex: 1;
                                 text-align: left;
@@ -134,7 +132,6 @@
                                 margin: 0;
                             }
 
-                            /* крестик справа, без float и без лишних отступов */
                             #modalCreateVersion .close {
                                 float: none;
                                 margin-left: auto;
@@ -146,6 +143,7 @@
                                 opacity: 1;
                             }
                         </style>
+
                         <!-- Modal for creating new project version -->
                         <div class="modal fade" id="modalCreateVersion" tabindex="-1" aria-hidden="true">
                             <div class="modal-dialog modal-lg modal-dialog-centered">
@@ -346,7 +344,6 @@
                 var selTime = form.querySelector('select[name="{{ form.time_class_level.html_name }}"]');
                 var selVersion = form.querySelector('select[name="{{ form.project_version.html_name }}"]');
                 var btnStart = form.querySelector('#btn-start');
-                var versionWarn = document.getElementById('version-required-hint');
                 var langsWrap = document.getElementById("languages-group");
 
                 var DEFAULT_EMPTY_LABEL = "Use default (latest on default branch)";
@@ -357,19 +354,45 @@
 
                 function getSelectValue(el) {
                     if (!el) return "";
+
+                    var v = "";
+
                     if (isSelectpickerApplied(el) && window.jQuery) {
                         try {
-                            return window.jQuery(el).selectpicker('val') || "";
+                            v = window.jQuery(el).selectpicker('val') || "";
                         } catch (e) {
                         }
                     }
-                    return el.value || "";
+
+                    if (!v) {
+                        v = el.value || "";
+                    }
+
+                    if ((!v || v === "") && el.tagName === "SELECT" && typeof el.selectedIndex === "number") {
+                        if (el.selectedIndex > 0) {
+                            var opt = el.options[el.selectedIndex];
+                            if (opt && opt.value) {
+                                v = opt.value;
+                            }
+                        }
+                    }
+
+                    return v || "";
                 }
+
                 function validateVersionRequired() {
-                    var val = getSelectValue(selVersion);
-                    var hasVal = !!val;
-                    if (btnStart) btnStart.disabled = !hasVal;
-                    if (versionWarn) versionWarn.classList.toggle('d-none', hasVal);
+                    if (!btnStart) return;
+
+                    var versionVal = getSelectValue(selVersion);
+                    var projectVal = getSelectValue(selProject);
+
+                    var hasVersion = !!versionVal;
+                    var hasProject = !!projectVal;
+
+                    var canStart = hasProject && hasVersion;
+
+                    btnStart.disabled = !canStart;
+                    btnStart.title = canStart ? "" : "Choose project and version";
                 }
 
                 function languageCheckboxes() {
@@ -483,7 +506,6 @@
                             selVersion.value = '';
                         }
                     }
-
 
                     validateVersionRequired();
                 }
@@ -603,10 +625,6 @@
                 function updateCreateButtonState() {
                     if (!btnOpenCreate) return;
                     btnOpenCreate.disabled = !(selProject && selProject.value);
-                }
-
-                function hasSelectpicker() {
-                    return !!(window.jQuery && window.jQuery.fn && window.jQuery.fn.selectpicker);
                 }
 
                 function initProjectVersionForm(root) {
@@ -767,9 +785,7 @@
                         for (var i = 0; i < selVersion.options.length; i++) {
                             var opt = selVersion.options[i];
                             if (!opt.value) continue;
-                            // option text like "<label>", we used prettifyLabel earlier (may include project id)
                             var text = opt.textContent || '';
-                            // best effort: take full text as version label (server returns unique id for value)
                             ids.push(text.trim());
                         }
                         return ids;
@@ -793,7 +809,6 @@
                     var isFile = (type === 'FILE_HASH');
                     var version = (inpText && inpText.value) ? inpText.value.trim() : '';
 
-                    // required checks
                     if (!isFile && !version) {
                         markError(inpText, 'Version is required for GIT_HASH.');
                         return;
@@ -803,7 +818,6 @@
                         return;
                     }
 
-                    // duplicate check (best-effort on client)
                     var existing = collectExistingVersionsForSelectedProject();
                     if (version && existing.indexOf(version) !== -1) {
                         markError(inpText, 'This version already exists for the selected project.');
@@ -893,7 +907,10 @@
                 }
 
                 if (selProject) {
-                    selProject.addEventListener("change", updateCreateButtonState);
+                    selProject.addEventListener("change", function () {
+                        updateCreateButtonState();
+                        validateVersionRequired();
+                    });
                     updateCreateButtonState();
                 }
             }

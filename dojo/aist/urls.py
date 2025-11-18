@@ -37,6 +37,10 @@ urlpatterns = [
          name="pipeline_enrich_progress"),
     path("projects/<int:project_id>/versions/create/", views.project_version_create, name="project_version_create"),
 
+    # AIST Projects UI
+    path("projects/", views.aist_project_list_view, name="aist_project_list"),
+    path("projects/<int:project_id>/update/", views.aist_project_update_view, name="aist_project_update"),
+
     # Github hooks
     path("github_hook/", AsyncWebhookView.as_view()),
 ]

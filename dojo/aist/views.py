@@ -653,3 +653,107 @@ def pipeline_enrich_progress_sse(request, pipeline_id: str):
     resp["Cache-Control"] = "no-cache"
     resp["X-Accel-Buffering"] = "no"
     return resp
+
+@login_required
+@require_http_methods(["POST"])
+def aist_project_update_view(request: HttpRequest, project_id: int) -> HttpResponse:
+    """
+    Update editable fields of a single AISTProject.
+
+    Expected POST fields:
+    - script_path: str (required)
+    - supported_languages: comma-separated string, e.g. "python, c++, java"
+    - compilable: "on" / missing (checkbox)
+    - profile: JSON string representing an object (optional)
+    """
+    project = get_object_or_404(AISTProject, id=project_id)
+
+    script_path = (request.POST.get("script_path") or "").strip()
+    compilable = request.POST.get("compilable") == "on"
+    supported_languages_raw = (request.POST.get("supported_languages") or "").strip()
+    profile_raw = (request.POST.get("profile") or "").strip()
+
+    errors: dict[str, str] = {}
+
+    if not script_path:
+        errors["script_path"] = "Script path is required."
+
+    # Parse supported_languages from comma-separated string.
+    cfg = _load_analyzers_config()
+    if not cfg:
+        return HttpResponseBadRequest(ERR_CONFIG_NOT_LOADED)
+
+    if supported_languages_raw:
+        languages = cfg.convert_languages([
+            x.strip()
+            for x in supported_languages_raw.split(",")
+            if x.strip()
+        ])
+    else:
+        languages = []
+
+    # Parse profile JSON; keep validation on the server.
+    profile: dict | list | None
+    if not profile_raw:
+        profile = {}
+    else:
+        try:
+            profile = json.loads(profile_raw)
+        except json.JSONDecodeError:
+            errors["profile"] = "Profile must be a valid JSON value."
+            profile = None
+
+    # For now we only allow JSON objects or empty profile for better UX.
+    if profile is not None and not isinstance(profile, dict):
+        errors["profile"] = "Profile must be a JSON object (e.g. {\"paths\": {\"exclude\": []}})."
+
+    if errors:
+        return JsonResponse({"ok": False, "errors": errors}, status=400)
+
+    project.script_path = script_path
+    project.compilable = compilable
+    project.supported_languages = languages
+    project.profile = profile or {}
+    project.save(update_fields=["script_path", "compilable", "supported_languages", "profile", "updated"])
+
+    return JsonResponse(
+        {
+            "ok": True,
+            "project": {
+                "id": project.id,
+                "product_name": getattr(project.product, "name", str(project.id)),
+                "script_path": project.script_path,
+                "compilable": project.compilable,
+                "supported_languages": project.supported_languages,
+                "profile": project.profile,
+            },
+        }
+    )
+
+
+@login_required
+@require_http_methods(["GET"])
+def aist_project_list_view(request: HttpRequest) -> HttpResponse:
+    """
+    A simple management screen for AISTProject objects.
+
+    Only fields that are safe to edit from UI are exposed:
+    - script_path
+    - supported_languages
+    - compilable
+    """
+    projects = (
+        AISTProject.objects
+        .select_related("product")
+        .order_by("product__name", "id")
+    )
+
+    add_breadcrumb(title="AIST Projects", top_level=True, request=request)
+    return render(
+        request,
+        "dojo/aist/projects.html",
+        {
+            "projects": projects,
+        },
+    )
+

@@ -1,0 +1,495 @@
+{% extends "base.html" %}
+
+{% block breadcrumbs %}
+    <li class="breadcrumb-item active" aria-current="page">
+        AIST Projects
+    </li>
+{% endblock %}
+
+{% block content %}
+    <h2 class="mb-2">AIST Projects</h2>
+    <p class="text-muted">
+        Manage AIST projects used by SAST pipelines. Only editable fields are exposed.
+    </p>
+
+    <div id="aist-projects-alert" class="alert alert-success" style="display:none;"></div>
+
+    <div class="panel panel-default">
+        <div class="panel-heading">
+            <div class="row">
+                <div class="col-sm-6">
+                    <strong>Projects</strong>
+                </div>
+                <div class="col-sm-6 text-right">
+                    <input id="aist-projects-filter"
+                           type="text"
+                           class="form-control input-sm"
+                           placeholder="Filter by product name or project id...">
+                </div>
+            </div>
+        </div>
+        <div class="table-responsive">
+            <table class="table table-hover" id="aist-projects-table">
+                <thead>
+                <tr>
+                    <th style="width: 40px;">ID</th>
+                    <th>Product</th>
+                    <th>Script path</th>
+                    <th>Supported languages</th>
+                    <th>Profile</th>
+                    <th style="width: 90px;">Compilable</th>
+                    <th style="width: 80px;">Edit</th>
+                </tr>
+                </thead>
+                <tbody>
+                {% for p in projects %}
+                    <tr data-project-id="{{ p.id }}"
+                        data-project-name="{{ p.product.name|default_if_none:'' }}"
+                        data-project-script-path="{{ p.script_path|default_if_none:'' }}"
+                        data-project-compilable="{{ p.compilable|yesno:'true,false' }}"
+                        data-project-langs="{{ p.supported_languages|join:', ' }}"
+                        data-project-profile="{{ p.profile|default:'{}'|escapejs }}"
+                        data-update-url="{% url 'dojo_aist:aist_project_update' p.id %}"
+                        data-delete-url="{% url 'dojo_aist_api:project_detail' project_id=p.id %}">
+                        <td>{{ p.id }}</td>
+                        <td>{{ p.product.name }}</td>
+                        <td class="script-path-cell">
+                            <code>{{ p.script_path }}</code>
+                        </td>
+                        <td class="langs-cell">
+                            {% if p.supported_languages %}
+                                {{ p.supported_languages|join:", " }}
+                            {% else %}
+                                <span class="text-muted">–</span>
+                            {% endif %}
+                        </td>
+                        <td class="profile-cell">
+                            {% if p.profile %}
+                                <code>{{ p.profile|truncatechars:80 }}</code>
+                            {% else %}
+                                <span class="text-muted">–</span>
+                            {% endif %}
+                        </td>
+                        <td class="compilable-cell">
+                            {% if p.compilable %}
+                                <span class="label label-success">Yes</span>
+                            {% else %}
+                                <span class="label label-default">No</span>
+                            {% endif %}
+                        </td>
+                        <td>
+                            <button type="button"
+                                    class="btn btn-xs btn-default aist-project-edit-btn">
+                                <i class="fa fa-pencil"></i> Edit
+                            </button>
+                        </td>
+                    </tr>
+                {% empty %}
+                    <tr>
+                        <td colspan="7" class="text-muted text-center">
+                            No AIST projects found.
+                        </td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+    </div>
+
+    {# Modal for editing a single project #}
+    <div class="modal fade" id="aistProjectModal" tabindex="-1" role="dialog"
+         aria-labelledby="aistProjectModalLabel">
+        <div class="modal-dialog" role="document">
+            <div class="modal-content">
+                <form id="aist-project-edit-form">
+                    {% csrf_token %}
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal"
+                                aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                        <h4 class="modal-title" id="aistProjectModalLabel">
+                            Edit AIST Project
+                        </h4>
+                    </div>
+                    <div class="modal-body">
+                        <div id="aist-project-edit-error"
+                             class="alert alert-danger"
+                             style="display:none;"></div>
+
+                        <div class="form-group">
+                            <label>Project ID</label>
+                            <input type="text" class="form-control" id="ap-project-id"
+                                   readonly>
+                        </div>
+
+                        <div class="form-group">
+                            <label>Product</label>
+                            <input type="text" class="form-control" id="ap-product-name"
+                                   readonly>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ap-script-path">Script path</label>
+                            <input type="text"
+                                   class="form-control"
+                                   id="ap-script-path"
+                                   name="script_path"
+                                   required>
+                            <p class="help-block">
+                                Relative path to the build / analysis script inside the project.
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ap-supported-languages">Supported languages</label>
+                            <input type="text"
+                                   class="form-control"
+                                   id="ap-supported-languages"
+                                   name="supported_languages">
+                            <p class="help-block">
+                                Comma-separated list, e.g. <code>python, cpp, java</code>.
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="ap-profile">Profile (JSON)</label>
+                            <textarea
+                                    class="form-control"
+                                    id="ap-profile"
+                                    name="profile"
+                                    rows="8"
+                                    style="font-family: Menlo, Monaco, Consolas, 'Courier New', monospace; font-size: 12px;"></textarea>
+                            <p class="help-block">
+                                JSON object, for example:
+                                <code>{"paths": {"exclude": ["artifacts", "test"]}}</code>.
+                            </p>
+                        </div>
+
+                        <div class="checkbox">
+                            <label>
+                                <input type="checkbox"
+                                       id="ap-compilable"
+                                       name="compilable">
+                                Project is compilable
+                            </label>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-danger pull-left"
+                                id="aist-project-delete-btn">
+                            Delete
+                        </button>
+                        <button type="button"
+                                class="btn btn-default"
+                                data-dismiss="modal">Cancel
+                        </button>
+                        <button type="submit" class="btn btn-primary">
+                            Save changes
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        (function () {
+            "use strict";
+
+            var table = document.getElementById("aist-projects-table");
+            var filterInput = document.getElementById("aist-projects-filter");
+            var modal = document.getElementById("aistProjectModal");
+            var form = document.getElementById("aist-project-edit-form");
+            var errorBox = document.getElementById("aist-project-edit-error");
+            var globalAlert = document.getElementById("aist-projects-alert");
+
+            var fieldId = document.getElementById("ap-project-id");
+            var fieldProduct = document.getElementById("ap-product-name");
+            var fieldScriptPath = document.getElementById("ap-script-path");
+            var fieldLangs = document.getElementById("ap-supported-languages");
+            var fieldCompilable = document.getElementById("ap-compilable");
+            var fieldProfile = document.getElementById("ap-profile");
+            var deleteBtn = document.getElementById("aist-project-delete-btn");
+
+            var currentRow = null;
+
+            function getCsrfToken() {
+                // Standard helper for Django CSRF token detection.
+                var fromInput = document.querySelector('input[name="csrfmiddlewaretoken"]');
+                if (fromInput && fromInput.value) return fromInput.value;
+
+                var fromMeta = document.querySelector('meta[name="csrf-token"]');
+                if (fromMeta && fromMeta.content) return fromMeta.content;
+
+                var m = document.cookie.match(/(?:^|;\s*)csrftoken=([^;]+)/);
+                if (m) return decodeURIComponent(m[1]);
+
+                return "";
+            }
+
+            function showGlobalAlert(message, kind) {
+                if (!globalAlert) return;
+                globalAlert.className = "alert alert-" + (kind || "success");
+                globalAlert.textContent = message;
+                globalAlert.style.display = "block";
+                setTimeout(function () {
+                    globalAlert.style.display = "none";
+                }, 3000);
+            }
+
+            function openEditModal(row) {
+                currentRow = row;
+
+                var id = row.getAttribute("data-project-id") || "";
+                var name = row.getAttribute("data-project-name") || "";
+                var scriptPath = row.getAttribute("data-project-script-path") || "";
+                var langs = row.getAttribute("data-project-langs") || "";
+                var compilable = row.getAttribute("data-project-compilable") === "true";
+
+                var profileRaw = row.getAttribute("data-project-profile") || "";
+                var profilePretty = profileRaw;
+
+                // Pretty-print profile JSON if possible for better readability.
+                if (profileRaw && typeof profileRaw === "string") {
+                    try {
+                        var obj = JSON.parse(profileRaw);
+                        profilePretty = JSON.stringify(obj, null, 2);
+                    } catch (e) {
+                        // If JSON is invalid, keep the raw string so the user can fix it.
+                        profilePretty = profileRaw;
+                    }
+                }
+
+                fieldId.value = id;
+                fieldProduct.value = name;
+                fieldScriptPath.value = scriptPath;
+                fieldLangs.value = langs;
+                fieldCompilable.checked = compilable;
+
+                if (fieldProfile) {
+                    fieldProfile.value = profilePretty || "";
+                }
+
+                if (errorBox) {
+                    errorBox.style.display = "none";
+                    errorBox.textContent = "";
+                }
+
+                if (window.jQuery && window.jQuery.fn.modal) {
+                    window.jQuery(modal).modal("show");
+                } else if (modal && modal.classList) {
+                    modal.classList.add("in");
+                    modal.style.display = "block";
+                }
+            }
+
+            function applyRowUpdate(row, payload) {
+                if (!row || !payload) return;
+
+                row.setAttribute("data-project-script-path", payload.script_path || "");
+                row.setAttribute("data-project-compilable", payload.compilable ? "true" : "false");
+                row.setAttribute("data-project-langs", (payload.supported_languages || []).join(", "));
+                row.setAttribute("data-project-profile", JSON.stringify(payload.profile || {}));
+
+                var scriptCell = row.querySelector(".script-path-cell");
+                if (scriptCell) {
+                    scriptCell.innerHTML = payload.script_path
+                        ? "<code>" + payload.script_path + "</code>"
+                        : "<span class=\"text-muted\">–</span>";
+                }
+
+                var langsCell = row.querySelector(".langs-cell");
+                if (langsCell) {
+                    if (payload.supported_languages && payload.supported_languages.length) {
+                        langsCell.textContent = payload.supported_languages.join(", ");
+                    } else {
+                        langsCell.innerHTML = "<span class=\"text-muted\">–</span>";
+                    }
+                }
+
+                var profileCell = row.querySelector(".profile-cell");
+                if (profileCell) {
+                    var preview = "";
+                    if (payload.profile && Object.keys(payload.profile).length) {
+                        try {
+                            preview = JSON.stringify(payload.profile);
+                        } catch (e) {
+                            preview = "";
+                        }
+                    }
+                    if (preview) {
+                        if (preview.length > 80) {
+                            preview = preview.slice(0, 77) + "…";
+                        }
+                        profileCell.innerHTML = "<code>" + preview + "</code>";
+                    } else {
+                        profileCell.innerHTML = "<span class=\"text-muted\">–</span>";
+                    }
+                }
+
+                var compCell = row.querySelector(".compilable-cell");
+                if (compCell) {
+                    if (payload.compilable) {
+                        compCell.innerHTML = "<span class=\"label label-success\">Yes</span>";
+                    } else {
+                        compCell.innerHTML = "<span class=\"label label-default\">No</span>";
+                    }
+                }
+            }
+
+            if (table) {
+                table.addEventListener("click", function (ev) {
+                    var btn = ev.target;
+                    if (!btn) return;
+
+                    if (!btn.classList.contains("aist-project-edit-btn")) {
+                        // In case the click was on inner <span> etc.
+                        btn = btn.closest(".aist-project-edit-btn");
+                        if (!btn) return;
+                    }
+
+                    var row = btn.closest("tr[data-project-id]");
+                    if (!row) return;
+
+                    openEditModal(row);
+                });
+            }
+
+            if (filterInput && table) {
+                filterInput.addEventListener("keyup", function () {
+                    var needle = (filterInput.value || "").toLowerCase();
+                    var rows = table.querySelectorAll("tbody tr[data-project-id]");
+                    Array.prototype.forEach.call(rows, function (r) {
+                        var name = (r.getAttribute("data-project-name") || "").toLowerCase();
+                        var id = (r.getAttribute("data-project-id") || "").toLowerCase();
+                        if (!needle || name.indexOf(needle) !== -1 || id.indexOf(needle) !== -1) {
+                            r.style.display = "";
+                        } else {
+                            r.style.display = "none";
+                        }
+                    });
+                });
+            }
+
+            if (form) {
+                form.addEventListener("submit", function (ev) {
+                    ev.preventDefault();
+                    if (!currentRow) return;
+
+                    var updateUrl = currentRow.getAttribute("data-update-url");
+                    if (!updateUrl) return;
+
+                    var formData = new FormData(form);
+
+                    var csrf = getCsrfToken();
+                    var headers = {
+                        "X-Requested-With": "XMLHttpRequest"
+                    };
+                    if (csrf) {
+                        headers["X-CSRFToken"] = csrf;
+                    }
+
+                    fetch(updateUrl, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: headers,
+                        body: formData
+                    }).then(function (resp) {
+                        return resp.json().then(function (data) {
+                            return {ok: resp.ok, data: data};
+                        });
+                    }).then(function (result) {
+                        if (!result.ok || !result.data.ok) {
+                            var msg = "Failed to update project.";
+                            if (result.data && result.data.errors) {
+                                msg = Object.values(result.data.errors).join(" ");
+                            }
+                            if (errorBox) {
+                                errorBox.textContent = msg;
+                                errorBox.style.display = "block";
+                            }
+                            return;
+                        }
+
+                        applyRowUpdate(currentRow, result.data.project);
+
+                        if (window.jQuery && window.jQuery.fn.modal) {
+                            window.jQuery(modal).modal("hide");
+                        } else if (modal && modal.classList) {
+                            modal.classList.remove("in");
+                            modal.style.display = "none";
+                        }
+
+                        showGlobalAlert("Project has been updated.", "success");
+                    }).catch(function () {
+                        if (errorBox) {
+                            errorBox.textContent = "Unexpected error while saving project.";
+                            errorBox.style.display = "block";
+                        }
+                    });
+                });
+            }
+
+            // Delete project handler
+            if (deleteBtn) {
+                deleteBtn.addEventListener("click", function () {
+                    if (!currentRow) return;
+
+                    var deleteUrl = currentRow.getAttribute("data-delete-url");
+                    if (!deleteUrl) return;
+
+                    var id = currentRow.getAttribute("data-project-id") || "";
+
+                    var confirmed = window.confirm(
+                        "Are you sure you want to delete this project? This action cannot be undone."
+                    );
+                    if (!confirmed) {
+                        return;
+                    }
+
+                    var csrf = getCsrfToken();
+                    var headers = {
+                        "X-Requested-With": "XMLHttpRequest"
+                    };
+                    if (csrf) {
+                        headers["X-CSRFToken"] = csrf;
+                    }
+
+                    fetch(deleteUrl, {
+                        method: "DELETE",
+                        credentials: "same-origin",
+                        headers: headers
+                    }).then(function (resp) {
+                        if (resp.status === 204) {
+                            // Hide modal
+                            if (window.jQuery && window.jQuery.fn.modal) {
+                                window.jQuery(modal).modal("hide");
+                            } else if (modal && modal.classList) {
+                                modal.classList.remove("in");
+                                modal.style.display = "none";
+                            }
+
+                            // Remove row from table
+                            if (currentRow && currentRow.parentNode) {
+                                currentRow.parentNode.removeChild(currentRow);
+                            }
+                            currentRow = null;
+
+                            showGlobalAlert("Project has been deleted.", "success");
+                        } else {
+                            if (errorBox) {
+                                errorBox.textContent = "Failed to delete project.";
+                                errorBox.style.display = "block";
+                            }
+                        }
+                    }).catch(function () {
+                        if (errorBox) {
+                            errorBox.textContent = "Unexpected error while deleting project.";
+                            errorBox.style.display = "block";
+                        }
+                    });
+                });
+            }
+        })();
+    </script>
+{% endblock %}
