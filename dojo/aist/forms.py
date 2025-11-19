@@ -3,7 +3,7 @@ from __future__ import annotations
 from django import forms
 
 from .models import AISTProject, AISTProjectVersion, VersionType
-from .utils import _load_analyzers_config
+from .utils import _load_analyzers_config, has_unfinished_pipeline
 
 
 class AISTProjectVersionForm(forms.ModelForm):
@@ -126,6 +126,30 @@ class AISTPipelineRunForm(forms.Form):
             self.initial["analyzers"] = defaults
         else:
             self.initial["analyzers"] = self.data.getlist(self.add_prefix("analyzers")) or defaults
+
+    def clean(self):
+        """
+        Prevent launching a new pipeline for the same project_version
+        if there is already an unfinished pipeline for it.
+        """
+        cleaned = super().clean()
+
+        project: AISTProject | None = cleaned.get("project")
+        project_version: AISTProjectVersion | None = cleaned.get("project_version")
+
+        # If version is not explicitly selected, use the same logic as get_params:
+        # the latest created version for this project.
+        if project and not project_version:
+            project_version = project.versions.order_by("-created").first()
+
+        # If we have a concrete version, check if there is an unfinished pipeline.
+        if project and project_version and has_unfinished_pipeline(project_version):
+            self.add_error(
+                "project_version",
+                "There is already a running pipeline for this project version.",
+            )
+
+        return cleaned
 
     def get_params(self) -> dict:
         """Collect final CLI/runner parameters from the selected SASTProject and form options."""

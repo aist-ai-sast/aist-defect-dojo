@@ -6,12 +6,12 @@ from django.db import migrations
 class Migration(migrations.Migration):
 
     dependencies = [
-        ('aist', '0002_alter_repositoryinfo_repo_name_and_more'),
+        ("aist", "0002_alter_repositoryinfo_repo_name_and_more"),
     ]
 
     operations = [
         migrations.RemoveField(
-            model_name='aistpipeline',
-            name='logs',
+            model_name="aistpipeline",
+            name="logs",
         ),
     ]

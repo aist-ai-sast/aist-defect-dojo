@@ -1,5 +1,6 @@
 {% extends 'base.html' %}
 {% load i18n %}
+
 {% block breadcrumbs %}
   <li class="breadcrumb-item">
     <a href="{% url 'dojo_aist:start_pipeline' %}">AIST Pipelines</a>
@@ -11,107 +12,178 @@
 
 {% block content %}
 <div class="container mt-3">
-  <h3 class="mb-3">Pipeline History</h3>
-
-<div class="card shadow-sm mb-3">
-  <div class="card-body pb-3">
-    <form method="get">
-      <!-- ряд полей -->
-      <div class="row g-3">
-        <div class="col-sm-6 col-lg-3">
-          <label class="form-label small mb-1">Project</label>
-          <select class="form-select" name="project">
-            <option value="">All projects</option>
-            {% for p in projects %}
-              <option value="{{ p.id }}" {% if selected_project|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>
-                {{ p.product.name }}
-              </option>
-            {% endfor %}
-          </select>
-        </div>
-
-        <div class="col-sm-6 col-lg-3">
-          <label class="form-label small mb-1">Search</label>
-          <input type="text" class="form-control" name="q" value="{{ search_query }}" placeholder="ID or product name">
-        </div>
-
-        <div class="col-sm-6 col-lg-2">
-          <label class="form-label small mb-1">Status</label>
-          <select class="form-select mb-1" name="status">
-            <option value="FINISHED" {% if status == "FINISHED" %}selected{% endif %}>Finished only</option>
-            <option value="ALL" {% if status == "ALL" %}selected{% endif %}>All statuses</option>
-          </select>
-        </div>
-
-        <div class="col-sm-6 col-lg-2">
-          <label class="form-label small mb-1">Per page</label>
-          <select class="form-select mb-1" name="page_size">
-            {% for n in page_sizes %}
-              <option value="{{ n }}" {% if page_obj.paginator.per_page == n %}selected{% endif %}>{{ n }}</option>
-            {% endfor %}
-          </select>
-        </div>
-          <div class="col-sm-6 col-lg-2">
-              <label class="form-label small mb-1" style="visibility:hidden">Apply</label>
-              <div class="col text-end">
-                  <button class="btn btn-primary" type="submit">Apply</button>
-              </div>
-          </div>
-      </div>
-    </form>
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h3 class="mb-1">Pipeline history</h3>
+      <p class="text-muted mb-0">
+        View and filter SAST pipeline runs across all AIST projects.
+      </p>
+    </div>
+    <div>
+      <a href="{% url 'dojo_aist:start_pipeline' %}" class="btn btn-primary">
+        <i class="fa fa-play me-1" aria-hidden="true"></i>
+        Start pipeline
+      </a>
+    </div>
   </div>
-</div>
 
+  <div class="card shadow-sm mb-3">
+    <div class="card-body pb-2">
+      <form id="pipeline-filters-form" method="get">
+        <div class="row g-3 align-items-end">
+          <div class="col-sm-6 col-lg-3">
+            <label class="form-label small mb-1">Project</label>
+            <select class="form-select form-select-sm" name="project">
+              <option value="">All projects</option>
+              {% for p in projects %}
+                <option value="{{ p.id }}"
+                        {% if selected_project|stringformat:"s" == p.id|stringformat:"s" %}selected{% endif %}>
+                  {{ p.product.name }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
 
+          <div class="col-sm-6 col-lg-3">
+            <label class="form-label small mb-1">Search</label>
+            <input type="text"
+                   class="form-control form-control-sm"
+                   name="q"
+                   value="{{ search_query }}"
+                   placeholder="Search by ID or product name">
+          </div>
+
+          <div class="col-sm-6 col-lg-2">
+            <label class="form-label small mb-1">Status</label>
+            <select class="form-select form-select-sm" name="status">
+              <option value="ALL" {% if status == "ALL" %}selected{% endif %}>All statuses</option>
+              <option value="FINISHED" {% if status == "FINISHED" %}selected{% endif %}>Finished only</option>
+            </select>
+          </div>
+
+          <div class="col-sm-6 col-lg-2">
+            <label class="form-label small mb-1">Per page</label>
+            <select class="form-select form-select-sm" name="page_size">
+              {% for n in page_sizes %}
+                <option value="{{ n }}"
+                        {% if page_obj.paginator.per_page == n %}selected{% endif %}>
+                  {{ n }}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+
+          <div class="col-sm-6 col-lg-2 d-flex justify-content-end">
+            <div class="text-end w-100">
+              <label class="form-label small mb-1 d-block">&nbsp;</label>
+              <a href="{% url 'dojo_aist:pipeline_list' %}"
+                 class="btn btn-outline-secondary btn-sm">
+                Reset
+              </a>
+            </div>
+          </div>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <div class="card shadow-sm">
     <div class="table-responsive">
       <table class="table table-sm table-hover align-middle mb-0">
-  <thead class="table-light">…</thead>
-  <tbody>
-    {% for r in items %}
-      <tr class="table-row-link" data-href="{% url 'dojo_aist:pipeline_detail' pipeline_id=r.id %}" style="cursor:pointer;">
-        <td class="text-monospace">#{{ r.id }}</td>
-        <td>{{ r.project_name }}</td>
-        <td>{{ r.updated|date:"Y-m-d H:i" }}</td>
-        <td>{% if r.duration %}{{ r.duration }}{% else %}—{% endif %}</td>
-        <td>
-          <span class="badge {% if r.status == 'FINISHED' %}bg-success{% else %}bg-secondary{% endif %}">
-            {{ r.status }}
-          </span>
-        </td>
-      </tr>
-    {% empty %}
-      <tr><td colspan="6" class="text-muted text-center py-4">No pipelines found.</td></tr>
-    {% endfor %}
-  </tbody>
-</table>
+        <thead class="table-light">
+          <tr>
+            <th style="width: 16%;">Pipeline ID</th>
+            <th style="width: 24%;">Project</th>
+            <th style="width: 16%;">Project version</th>
+            <th style="width: 14%;">Created</th>
+            <th style="width: 14%;">Updated</th>
+            <th style="width: 8%;">Duration</th>
+            <th style="width: 8%;">Status</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for r in items %}
+            <tr class="table-row-link {% if r.is_active %}table-warning{% endif %}"
+                data-href="{% url 'dojo_aist:pipeline_detail' pipeline_id=r.id %}"
+                style="cursor:pointer;">
+              <td class="text-monospace">
+                #{{ r.id }}
+              </td>
+              <td>
+                {{ r.project_name }}
+              </td>
+              <td>
+                {% if r.project_version %}
+                  <code>{{ r.project_version }}</code>
+                {% else %}
+                  <span class="text-muted">&mdash;</span>
+                {% endif %}
+              </td>
+              <td>
+                {{ r.created|date:"Y-m-d H:i" }}
+              </td>
+              <td>
+                {{ r.updated|date:"Y-m-d H:i" }}
+              </td>
+              <td>
+                {% if r.duration %}
+                  {{ r.duration }}
+                {% else %}
+                  &mdash;
+                {% endif %}
+              </td>
+              <td>
+                {% if r.status == "FINISHED" %}
+                  <span class="badge bg-success">FINISHED</span>
+                {% else %}
+                  <span class="badge bg-secondary">{{ r.status }}</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% empty %}
+            <tr>
+              <td colspan="7" class="text-muted text-center py-4">
+                No pipelines found.
+              </td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
     </div>
 
     <div class="card-footer d-flex justify-content-between align-items-center">
       <div class="small text-muted">
-        Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} · Total {{ page_obj.paginator.count }}
+        Page {{ page_obj.number }} / {{ page_obj.paginator.num_pages }} ·
+        Total {{ page_obj.paginator.count }}
       </div>
       <nav>
         <ul class="pagination mb-0">
           {% if page_obj.has_previous %}
             <li class="page-item">
-              <a class="page-link" href="?{{ qs }}&page={{ page_obj.previous_page_number }}">‹ Prev</a>
+              <a class="page-link"
+                 href="?{{ qs }}&page={{ page_obj.previous_page_number }}">‹ Prev</a>
             </li>
           {% else %}
-            <li class="page-item disabled"><span class="page-link">‹ Prev</span></li>
+            <li class="page-item disabled">
+              <span class="page-link">‹ Prev</span>
+            </li>
           {% endif %}
 
-          <li class="page-item disabled"><span class="page-link">
-            {{ page_obj.number }}
-          </span></li>
+          <li class="page-item disabled">
+            <span class="page-link">
+              {{ page_obj.number }}
+            </span>
+          </li>
 
           {% if page_obj.has_next %}
             <li class="page-item">
-              <a class="page-link" href="?{{ qs }}&page={{ page_obj.next_page_number }}">Next ›</a>
+              <a class="page-link"
+                 href="?{{ qs }}&page={{ page_obj.next_page_number }}">Next ›</a>
             </li>
           {% else %}
-            <li class="page-item disabled"><span class="page-link">Next ›</span></li>
+            <li class="page-item disabled">
+              <span class="page-link">Next ›</span>
+            </li>
           {% endif %}
         </ul>
       </nav>
@@ -121,12 +193,50 @@
 
 <script>
   (function () {
-    document.querySelectorAll('tr.table-row-link').forEach(function (tr) {
-      tr.addEventListener('click', function (e) {
-        if (e.target.closest('a, button')) return;
-        window.location.href = tr.dataset.href;
+    "use strict";
+
+    var tableRows = document.querySelectorAll("tr.table-row-link");
+    Array.prototype.forEach.call(tableRows, function (tr) {
+      tr.addEventListener("click", function (e) {
+        if (e.target.closest("a, button, input, select, textarea")) {
+          return;
+        }
+        var href = tr.getAttribute("data-href");
+        if (href) {
+          window.location.href = href;
+        }
       });
     });
+
+    var form = document.getElementById("pipeline-filters-form");
+    if (!form) {
+      return;
+    }
+
+    function submitForm() {
+      if (form.requestSubmit) {
+        form.requestSubmit();
+      } else {
+        form.submit();
+      }
+    }
+
+    // Auto-submit on select changes and page_size change
+    form.querySelectorAll("select").forEach(function (el) {
+      el.addEventListener("change", submitForm);
+    });
+
+    // Debounced auto-submit on search input
+    var searchInput = form.querySelector('input[name="q"]');
+    if (searchInput) {
+      var timeoutId = null;
+      searchInput.addEventListener("input", function () {
+        if (timeoutId) {
+          clearTimeout(timeoutId);
+        }
+        timeoutId = setTimeout(submitForm, 400);
+      });
+    }
   })();
 </script>
 {% endblock %}

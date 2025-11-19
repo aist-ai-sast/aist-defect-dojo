@@ -19,8 +19,13 @@ from rest_framework.views import APIView
 from dojo.aist.tasks import run_sast_pipeline
 
 from .link_builder import LinkBuilder
-from .models import AISTPipeline, AISTProject, AISTProjectVersion, AISTStatus, VersionType, Organization
-from .utils import _import_sast_pipeline_package, create_pipeline_object, get_project_build_path
+from .models import AISTPipeline, AISTProject, AISTProjectVersion, AISTStatus, Organization, VersionType
+from .utils import (
+    _import_sast_pipeline_package,
+    create_pipeline_object,
+    get_project_build_path,
+    has_unfinished_pipeline,
+)
 
 _import_sast_pipeline_package()
 
@@ -56,6 +61,7 @@ class PipelineStartAPI(APIView):
         responses={
             201: OpenApiResponse(PipelineResponseSerializer, description="Pipeline created"),
             404: OpenApiResponse(description="Project version not found"),
+            405: OpenApiResponse(description="There is already a running pipeline for this project version"),
         },
         examples=[
             OpenApiExample(
@@ -77,6 +83,9 @@ class PipelineStartAPI(APIView):
         # we take project from version to avoid double inputs
         project_version = get_object_or_404(AISTProjectVersion, pk=pv_id)
         project = project_version.project
+
+        if has_unfinished_pipeline(project_version):
+            return Response(status=status.HTTP_405_METHOD_NOT_ALLOWED)
 
         # create pipeline in transaction
         with transaction.atomic():
@@ -453,7 +462,9 @@ class ProjectVersionCreateAPI(APIView):
         out = AISTProjectVersionCreateSerializer(instance=version, context={"project": project})
         return Response(out.data, status=status.HTTP_201_CREATED)
 
+
 class OrganizationSerializer(serializers.ModelSerializer):
+
     """Serializer for Organization model used in AIST UI."""
 
     class Meta:
@@ -462,9 +473,8 @@ class OrganizationSerializer(serializers.ModelSerializer):
 
 
 class OrganizationCreateAPI(generics.CreateAPIView):
-    """
-    Create a new Organization that can be assigned to AISTProject instances.
-    """
+
+    """Create a new Organization that can be assigned to AISTProject instances."""
 
     permission_classes = [IsAuthenticated]
     serializer_class = OrganizationSerializer

@@ -3,12 +3,12 @@ from django.urls import path
 from .api import (
     AISTProjectDetailAPI,
     AISTProjectListAPI,
+    OrganizationCreateAPI,
     PipelineAPI,
     PipelineListAPI,
     PipelineStartAPI,
     ProjectVersionCreateAPI,
     ProjectVersionFileBlobAPI,
-    OrganizationCreateAPI,
 )
 from .gitlab_integration_api import ImportProjectFromGitlabAPI
 

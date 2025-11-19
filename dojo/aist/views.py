@@ -24,7 +24,7 @@ from .forms import (  # type: ignore[import-not-found]
     _signature,
 )
 from .logging_transport import BACKLOG_COUNT, PUBSUB_CHANNEL_TPL, STREAM_KEY, get_pipeline_log_path, get_redis
-from .models import AISTPipeline, AISTProject, AISTStatus, TestDeduplicationProgress, Organization
+from .models import AISTPipeline, AISTProject, AISTStatus, Organization, TestDeduplicationProgress
 from .utils import _fmt_duration, _qs_without, create_pipeline_object, stop_pipeline
 
 # ---- Error messages -------------------------------------------------
@@ -259,12 +259,6 @@ def start_pipeline(request: HttpRequest) -> HttpResponse:
     successful submission a new pipeline is created and the Celery
     task is triggered.
     """
-    # If there is an active pipeline that hasn't finished yet,
-    # immediately redirect the user to its status page.
-    active = AISTPipeline.objects.exclude(status=AISTStatus.FINISHED).first()
-    if active:
-        return redirect("dojo_aist:pipeline_detail", pipeline_id=active.id)
-
     project_id = request.GET.get("project")
     q = (request.GET.get("q") or "").strip()
 
@@ -335,15 +329,17 @@ def start_pipeline(request: HttpRequest) -> HttpResponse:
 def pipeline_list(request):
     project_id = request.GET.get("project")
     q = (request.GET.get("q") or "").strip()
-    status = (request.GET.get("status") or "FINISHED").upper()  # FINISHED | ALL
+
+    status = (request.GET.get("status") or "ALL").upper()  # ALL | FINISHED
     per_page = int(request.GET.get("page_size") or 20)
 
     qs = (
         AISTPipeline.objects
-        .select_related("project__product")
+        .select_related("project__product", "project_version")
         .order_by("-updated")
     )
-    if status != "ALL":
+
+    if status == "FINISHED":
         qs = qs.filter(status=AISTStatus.FINISHED)
 
     if project_id:
@@ -360,10 +356,13 @@ def pipeline_list(request):
     items = [{
         "id": p.id,
         "project_name": getattr(getattr(p.project, "product", None), "name", str(p.project_id)),
+        "project_version": getattr(p.project_version, "version", None),
         "created": p.created,
         "updated": p.updated,
         "status": p.status,
         "duration": _fmt_duration(p.created, p.updated),
+        # Active = anything that is not FINISHED
+        "is_active": p.status != AISTStatus.FINISHED,
     } for p in page_obj.object_list]
 
     qs_str = _qs_without(request, "page")
@@ -654,6 +653,7 @@ def pipeline_enrich_progress_sse(request, pipeline_id: str):
     resp["X-Accel-Buffering"] = "no"
     return resp
 
+
 @login_required
 @require_http_methods(["POST"])
 def aist_project_update_view(request: HttpRequest, project_id: int) -> HttpResponse:
@@ -691,7 +691,7 @@ def aist_project_update_view(request: HttpRequest, project_id: int) -> HttpRespo
                 x.strip()
                 for x in supported_languages_raw.split(",")
                 if x.strip()
-            ]
+            ],
         )
     else:
         languages = []
@@ -752,9 +752,8 @@ def aist_project_update_view(request: HttpRequest, project_id: int) -> HttpRespo
                 "organization_id": project.organization_id,
                 "organization_name": getattr(project.organization, "name", None),
             },
-        }
+        },
     )
-
 
 
 @login_required
@@ -771,8 +770,8 @@ def aist_project_list_view(request: HttpRequest) -> HttpResponse:
       * supported_languages
       * compilable
       * profile
-    """
 
+    """
     # Organizations with their projects prefetched to avoid N+1 queries.
     organizations = (
         Organization.objects
@@ -797,5 +796,3 @@ def aist_project_list_view(request: HttpRequest) -> HttpResponse:
             "unassigned_projects": unassigned_projects,
         },
     )
-
-

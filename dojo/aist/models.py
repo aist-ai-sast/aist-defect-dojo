@@ -211,7 +211,9 @@ class AISTStatus(models.TextChoices):
     WAITING_RESULT_FROM_AI = "WAITING_RESULT_FROM_AI", "Waiting Result From AI"
     FINISHED = "FINISHED", "Finished"
 
+
 class Organization(models.Model):
+
     """
     Simple organization/group entity for AIST projects.
     One organization can have many AISTProject objects.
