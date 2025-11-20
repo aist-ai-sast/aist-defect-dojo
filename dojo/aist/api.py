@@ -463,7 +463,7 @@ class ProjectVersionCreateAPI(APIView):
         return Response(out.data, status=status.HTTP_201_CREATED)
 
 
-class OrganizationSerializer(serializers.ModelSerializer):
+class AISTOrganizationSerializer(serializers.ModelSerializer):
 
     """Serializer for Organization model used in AIST UI."""
 
@@ -477,15 +477,15 @@ class OrganizationCreateAPI(generics.CreateAPIView):
     """Create a new Organization that can be assigned to AISTProject instances."""
 
     permission_classes = [IsAuthenticated]
-    serializer_class = OrganizationSerializer
+    serializer_class = AISTOrganizationSerializer
     queryset = Organization.objects.all()
 
     @extend_schema(
         tags=["aist"],
         summary="Create organization",
         description="Creates a new organization that can be used to group AIST projects.",
-        request=OrganizationSerializer,
-        responses={201: OpenApiResponse(OrganizationSerializer, description="Organization created")},
+        request=AISTOrganizationSerializer,
+        responses={201: OpenApiResponse(AISTOrganizationSerializer, description="Organization created")},
     )
     def post(self, request, *args, **kwargs) -> Response:
         # Use generic CreateAPIView logic for validation + object creation
