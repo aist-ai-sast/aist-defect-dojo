@@ -2153,7 +2153,7 @@ GITHUB_APP = {
 }
 
 # TODO: find a way to initialize default value for tests. MUST be overwritten for prod
-FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="4j2UH_n0npFJQYu9sa5kHbIFuWiENccaLtSGBIc_nFI")
+FIELD_ENCRYPTION_KEY = env("FIELD_ENCRYPTION_KEY", default="8fXhDgOkQXCi2TjuPcomS0swNpj6ynTVuT3H2QrwZlk=")
 
 LOGIN_EXEMPT_URLS += (r"^aist/pipelines/[^/]+/callback/?$", r"^aist/github_hook/")
 
