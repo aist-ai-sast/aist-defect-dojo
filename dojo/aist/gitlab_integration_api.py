@@ -1,5 +1,6 @@
 # --- add near other imports in api.py ---
 import requests  # std HTTP client
+from django.shortcuts import get_object_or_404
 from drf_spectacular.utils import OpenApiResponse, extend_schema
 from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
@@ -8,7 +9,7 @@ from rest_framework.views import APIView
 
 from dojo.models import DojoMeta, Product, Product_Type
 
-from .models import AISTProject, RepositoryInfo, ScmGitlabBinding, ScmType
+from .models import AISTProject, Organization, RepositoryInfo, ScmGitlabBinding, ScmType
 from .utils import _load_analyzers_config  # same helper as GH flow uses
 
 
@@ -19,6 +20,7 @@ class ImportGitlabRequestSerializer(serializers.Serializer):
     gitlab_api_token = serializers.CharField(write_only=True, trim_whitespace=True)
     # Optional for self-hosted GitLab like https://gitlab.company.tld
     base_url = serializers.URLField(required=False, default="https://gitlab.com")
+    organization_id = serializers.IntegerField(required=False)
 
 
 class ImportGitlabResponseSerializer(serializers.Serializer):
@@ -111,6 +113,11 @@ class ImportProjectFromGitlabAPI(APIView):
             binding.personal_access_token = token
             binding.save(update_fields=["personal_access_token"])
 
+        organization_id = serializer.validated_data.get("organization_id", None)
+        organization = None
+        if organization_id:
+            organization = get_object_or_404(Organization, pk=organization_id)
+
         aist_project, _ = AISTProject.objects.get_or_create(
             product=product,
             defaults={
@@ -119,6 +126,7 @@ class ImportProjectFromGitlabAPI(APIView):
                 "compilable": False,
                 "profile": {},
                 "repository": repo_info,
+                "organization": organization,
             },
         )
 

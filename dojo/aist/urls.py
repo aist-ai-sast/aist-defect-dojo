@@ -43,4 +43,9 @@ urlpatterns = [
 
     # Github hooks
     path("github_hook/", AsyncWebhookView.as_view()),
+    path(
+        "projects/gitlab/list/",
+        views.gitlab_projects_list,
+        name="gitlab_projects_list",
+    ),
 ]

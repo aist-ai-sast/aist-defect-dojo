@@ -20,14 +20,28 @@
                 <div class="col-sm-6">
                     <strong>Projects by organization</strong>
                 </div>
-                <div class="col-sm-6 text-right">
-                    <input id="aist-projects-filter"
-                           type="text"
-                           class="form-control input-sm"
-                           placeholder="Filter by product name or project id...">
+                <div class="col-sm-6">
+                    <div class="input-group input-group-sm pull-right" style="max-width: 420px;">
+                <span class="input-group-btn">
+                    <button type="button"
+                            class="btn btn-default"
+                            id="gitlab-import-open">
+                        <i class="fa-brands fa-gitlab" aria-hidden="true"></i>
+                        Import from GitLab
+                    </button>
+                </span>
+                        <span class="input-group-addon">
+                    <i class="fa fa-search" aria-hidden="true"></i>
+                </span>
+                        <input id="aist-projects-filter"
+                               type="text"
+                               class="form-control"
+                               placeholder="Filter by product name or project id...">
+                    </div>
                 </div>
             </div>
         </div>
+
         <div class="table-responsive">
             <table class="table table-hover" id="aist-projects-table">
                 <thead>
@@ -267,6 +281,133 @@
         </div>
     </div>
 
+    {# Modal for importing projects from GitLab #}
+    <div class="modal fade" id="gitlabImportModal" tabindex="-1" role="dialog"
+         aria-labelledby="gitlabImportModalLabel">
+        <div class="modal-dialog modal-lg" role="document">
+            <div class="modal-content">
+                <form id="gitlab-import-form">
+                    {% csrf_token %}
+                    <div class="modal-header">
+                        <button type="button" class="close" data-dismiss="modal"
+                                aria-label="Close"><span aria-hidden="true">&times;</span></button>
+                        <h4 class="modal-title" id="gitlabImportModalLabel">
+                            Import projects from GitLab
+                        </h4>
+                    </div>
+                    <div class="modal-body">
+                        <div id="gitlab-import-error"
+                             class="alert alert-danger"
+                             style="display:none;"></div>
+
+                        <div class="form-group">
+                            <label for="gitlab-url">GitLab URL</label>
+                            <input type="url"
+                                   class="form-control"
+                                   id="gitlab-url"
+                                   name="gitlab_url"
+                                   placeholder="https://gitlab.example.com"
+                                   required>
+                            <p class="help-block">
+                                Base URL of your GitLab instance (without trailing slash).
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="gitlab-token">GitLab personal access token</label>
+                            <div class="input-group">
+                                <input type="password"
+                                       class="form-control"
+                                       id="gitlab-token"
+                                       name="gitlab_token"
+                                       autocomplete="off"
+                                       required>
+
+                                <button class="btn btn-default"
+                                        type="button"
+                                        id="gitlab-token-toggle">
+                                    <i class="fa fa-eye"></i>
+                                </button>
+                            </div>
+                            <p class="help-block">
+                                Token is used only for this import operation and is not stored.
+                            </p>
+                        </div>
+
+                        <div class="form-group">
+                            <label for="gitlab-org-select">Organization (optional)</label>
+                            <select class="form-control" id="gitlab-org-select" name="organization_id">
+                                <option value="">None</option>
+                                {% for org in organizations %}
+                                    <option value="{{ org.id }}">{{ org.name }}</option>
+                                {% endfor %}
+                            </select>
+                            <p class="help-block">
+                                If selected, all imported projects will be attached to this organization.
+                            </p>
+                        </div>
+
+                        <hr>
+
+                        <div id="gitlab-projects-container" style="display:none;">
+                            <p class="text-muted small">
+                                Select one or more projects to import as AIST projects.
+                            </p>
+                            <div class="form-group">
+                                <input type="text"
+                                       class="form-control input-sm"
+                                       id="gitlab-projects-search"
+                                       placeholder="Filter projects by name, path or description...">
+                            </div>
+                            <div class="table-responsive" style="max-height: 320px; overflow-y: auto;">
+                                <table class="table table-condensed table-hover" id="gitlab-projects-table">
+                                    <thead>
+                                    <tr>
+                                        <th style="width: 30px;">
+                                            <input type="checkbox" id="gitlab-select-all">
+                                        </th>
+                                        <th style="width: 80px;">ID</th>
+                                        <th>Path</th>
+                                        <th style="width: 120px;">Language</th>
+                                        <th>Description</th>
+                                        <th style="width: 120px;">Default branch</th>
+                                    </tr>
+                                    </thead>
+                                    <tbody id="gitlab-projects-tbody">
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+                    <div class="modal-footer">
+                        <button type="button"
+                                class="btn btn-default"
+                                data-dismiss="modal">
+                            Close
+                        </button>
+                        <button type="button"
+                                class="btn btn-primary"
+                                id="gitlab-list-btn">
+                            List projects
+                        </button>
+
+                        <span id="gitlab-projects-loading"
+                              class="text-muted"
+                              style="display: none; margin-left: 8px;">
+                            <i class="fa fa-spinner fa-spin"></i> Loading projects...
+                        </span>
+                        <button type="button"
+                                class="btn btn-success"
+                                id="gitlab-import-btn"
+                                disabled>
+                            Import selected
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+
     {# Modal for editing a single project #}
     <div class="modal fade" id="aistProjectModal" tabindex="-1" role="dialog"
          aria-labelledby="aistProjectModalLabel">
@@ -397,6 +538,26 @@
             var fieldCompilable = document.getElementById("ap-compilable");
             var fieldProfile = document.getElementById("ap-profile");
             var deleteBtn = document.getElementById("aist-project-delete-btn");
+
+            // GitLab import modal elements
+            var gitlabOpenBtn = document.getElementById("gitlab-import-open");
+            var gitlabModal = document.getElementById("gitlabImportModal");
+            var gitlabForm = document.getElementById("gitlab-import-form");
+            var gitlabErrorBox = document.getElementById("gitlab-import-error");
+            var gitlabListBtn = document.getElementById("gitlab-list-btn");
+            var loadingIndicator = document.getElementById("gitlab-projects-loading");
+            var gitlabImportBtn = document.getElementById("gitlab-import-btn");
+            var gitlabProjectsContainer = document.getElementById("gitlab-projects-container");
+            var gitlabProjectsTbody = document.getElementById("gitlab-projects-tbody");
+            var gitlabSelectAll = document.getElementById("gitlab-select-all");
+            var gitlabUrlField = document.getElementById("gitlab-url");
+            var gitlabTokenField = document.getElementById("gitlab-token");
+            var gitlabTokenToggle = document.getElementById("gitlab-token-toggle");
+
+            // URLs for GitLab integration
+            var gitlabListUrl = "{% url 'dojo_aist:gitlab_projects_list' %}";
+            var gitlabImportUrl = "{% url 'dojo_aist_api:import_project_from_gitlab' %}";
+
 
             var currentRow = null;
 
@@ -550,6 +711,34 @@
                 }
             }
 
+            function clearGitlabState() {
+                if (gitlabErrorBox) {
+                    gitlabErrorBox.style.display = "none";
+                    gitlabErrorBox.textContent = "";
+                }
+                if (gitlabProjectsTbody) {
+                    gitlabProjectsTbody.innerHTML = "";
+                }
+                if (gitlabProjectsContainer) {
+                    gitlabProjectsContainer.style.display = "none";
+                }
+                if (gitlabImportBtn) {
+                    gitlabImportBtn.disabled = true;
+                }
+                if (gitlabSelectAll) {
+                    gitlabSelectAll.checked = false;
+                }
+            }
+
+            function updateGitlabImportButtonState() {
+                if (!gitlabProjectsTbody || !gitlabImportBtn) return;
+                var anyChecked = !!gitlabProjectsTbody.querySelector(
+                    "input.gitlab-project-checkbox:checked"
+                );
+                gitlabImportBtn.disabled = !anyChecked;
+            }
+
+
             if (table) {
                 table.addEventListener("click", function (ev) {
                     var btn = ev.target;
@@ -642,6 +831,235 @@
                     });
                 });
             }
+
+            if (gitlabOpenBtn && gitlabModal) {
+                gitlabOpenBtn.addEventListener("click", function () {
+                    clearGitlabState();
+
+                    if (window.jQuery && window.jQuery.fn.modal) {
+                        window.jQuery(gitlabModal).modal("show");
+                    } else {
+                        gitlabModal.classList.add("in");
+                        gitlabModal.style.display = "block";
+                    }
+                });
+            }
+
+            // Show / hide GitLab token
+            if (gitlabTokenToggle && gitlabTokenField) {
+                gitlabTokenToggle.addEventListener("click", function () {
+                    if (gitlabTokenField.type === "password") {
+                        gitlabTokenField.type = "text";
+                        this.innerHTML = '<i class="fa fa-eye-slash"></i>';
+                    } else {
+                        gitlabTokenField.type = "password";
+                        this.innerHTML = '<i class="fa fa-eye"></i>';
+                    }
+                });
+            }
+
+            // Load projects list from GitLab
+            if (gitlabListBtn && gitlabForm && gitlabProjectsTbody) {
+                gitlabListBtn.addEventListener("click", function () {
+
+                    gitlabListBtn.disabled = true;
+                    if (loadingIndicator) {
+                        loadingIndicator.style.display = "inline-block";
+                    }
+                    var csrf = getCsrfToken();
+                    var headers = {
+                        "X-Requested-With": "XMLHttpRequest"
+                    };
+                    if (csrf) {
+                        headers["X-CSRFToken"] = csrf;
+                    }
+
+                    var formData = new FormData(gitlabForm);
+
+                    clearGitlabState();
+
+                    fetch(gitlabListUrl, {
+                        method: "POST",
+                        credentials: "same-origin",
+                        headers: headers,
+                        body: formData
+                    }).then(function (resp) {
+                        return resp.json().then(function (data) {
+                            return {ok: resp.ok, data: data};
+                        });
+                    }).then(function (result) {
+                        if (!result.ok || !result.data.ok) {
+                            var msg = (result.data && result.data.error) ||
+                                "Failed to load projects from GitLab.";
+                            if (gitlabErrorBox) {
+                                gitlabErrorBox.textContent = msg;
+                                gitlabErrorBox.style.display = "block";
+                            }
+                            return;
+                        }
+
+                        var projects = result.data.projects || [];
+                        if (!projects.length) {
+                            if (gitlabErrorBox) {
+                                gitlabErrorBox.textContent = "No projects returned from GitLab.";
+                                gitlabErrorBox.style.display = "block";
+                            }
+                            return;
+                        }
+
+                        var rowsHtml = "";
+                        projects.forEach(function (p) {
+                            rowsHtml +=
+                                '<tr>' +
+                                '<td><input type="checkbox" class="gitlab-project-checkbox" value="' + (p.id || "") + '"></td>' +
+                                '<td class="text-monospace">' + (p.id || "") + '</td>' +
+                                '<td>' + (p.path_with_namespace || p.name || "") + '</td>' +
+                                '<td>' + (p.language || "–") + '</td>' +
+                                '<td>' + (p.description || "") + '</td>' +
+                                '<td>' + (p.default_branch || "") + '</td>' +
+                                '</tr>';
+                        });
+
+                        gitlabProjectsTbody.innerHTML = rowsHtml;
+                        if (gitlabProjectsContainer) {
+                            gitlabProjectsContainer.style.display = "block";
+                        }
+                        updateGitlabImportButtonState();
+                    }).catch(function () {
+                        if (gitlabErrorBox) {
+                            gitlabErrorBox.textContent = "Unexpected error while loading GitLab projects.";
+                            gitlabErrorBox.style.display = "block";
+                        }
+                    }).finally(function () {
+                        gitlabListBtn.disabled = false;
+                        if (loadingIndicator) {
+                            loadingIndicator.style.display = "none";
+                        }
+                    });
+                });
+            }
+
+            // Select all / selection change
+            if (gitlabSelectAll && gitlabProjectsTbody) {
+                gitlabSelectAll.addEventListener("change", function () {
+                    var checked = gitlabSelectAll.checked;
+                    var checkboxes = gitlabProjectsTbody.querySelectorAll("input.gitlab-project-checkbox");
+                    Array.prototype.forEach.call(checkboxes, function (cb) {
+                        cb.checked = checked;
+                    });
+                    updateGitlabImportButtonState();
+                });
+
+                gitlabProjectsTbody.addEventListener("change", function (ev) {
+                    var target = ev.target;
+                    if (!target || !target.classList.contains("gitlab-project-checkbox")) {
+                        return;
+                    }
+                    if (!target.checked && gitlabSelectAll) {
+                        gitlabSelectAll.checked = false;
+                    }
+                    updateGitlabImportButtonState();
+                });
+            }
+
+            // Import selected GitLab projects via existing API
+            if (gitlabImportBtn && gitlabProjectsTbody) {
+                gitlabImportBtn.addEventListener("click", function () {
+                    var checkboxes = gitlabProjectsTbody.querySelectorAll(
+                        "input.gitlab-project-checkbox:checked"
+                    );
+                    if (!checkboxes.length) {
+                        return;
+                    }
+
+                    var gitlabUrl = gitlabUrlField ? (gitlabUrlField.value || "") : "";
+                    var gitlabToken = gitlabTokenField ? (gitlabTokenField.value || "") : "";
+                    var organizationField = document.getElementById("gitlab-org-select")
+                    const org = organizationField ? (organizationField.value || "") : "";
+
+                    if (!gitlabUrl || !gitlabToken) {
+                        if (gitlabErrorBox) {
+                            gitlabErrorBox.textContent = "GitLab URL and token are required.";
+                            gitlabErrorBox.style.display = "block";
+                        }
+                        return;
+                    }
+
+                    var csrf = getCsrfToken();
+                    var headers = {
+                        "X-Requested-With": "XMLHttpRequest",
+                        "Content-Type": "application/json"
+                    };
+                    if (csrf) {
+                        headers["X-CSRFToken"] = csrf;
+                    }
+
+                    var ids = Array.prototype.map.call(checkboxes, function (cb) {
+                        return cb.value;
+                    });
+
+                    // Send one request per selected project.
+                    var promises = ids.map(function (id) {
+                        var payload = {
+                            base_url: gitlabUrl,
+                            gitlab_api_token: gitlabToken,
+                            project_id: id,
+                            organization_id: org
+                        };
+                        return fetch(gitlabImportUrl, {
+                            method: "POST",
+                            credentials: "same-origin",
+                            headers: headers,
+                            body: JSON.stringify(payload)
+                        }).then(function (resp) {
+                            return resp.json().then(function (data) {
+                                return {ok: resp.ok, data: data};
+                            });
+                        }).catch(function () {
+                            return {ok: false, data: {error: "Network error"}};
+                        });
+                    });
+
+                    Promise.all(promises).then(function (results) {
+                        var failed = results.filter(function (r) {
+                            return !r.ok;
+                        });
+                        if (failed.length && gitlabErrorBox) {
+                            gitlabErrorBox.textContent =
+                                "Some projects failed to import. Please check server logs.";
+                            gitlabErrorBox.style.display = "block";
+                            return;
+                        }
+
+                        // Close modal and reload page to show new projects.
+                        if (window.jQuery && window.jQuery.fn.modal) {
+                            window.jQuery(gitlabModal).modal("hide");
+                        } else if (gitlabModal && gitlabModal.classList) {
+                            gitlabModal.classList.remove("in");
+                            gitlabModal.style.display = "none";
+                        }
+
+                        showGlobalAlert("Selected GitLab projects have been imported.", "success");
+                        window.location.reload();
+                    });
+                });
+            }
+
+            var searchInput = document.getElementById("gitlab-projects-search");
+            var imported_gitlab_projects_table = document.getElementById("gitlab-projects-table");
+
+            if (searchInput && imported_gitlab_projects_table) {
+                searchInput.addEventListener("keyup", function () {
+                    var needle = (searchInput.value || "").toLowerCase();
+                    var rows = imported_gitlab_projects_table.querySelectorAll("tbody tr");
+
+                    Array.prototype.forEach.call(rows, function (row) {
+                        var text = (row.textContent || "").toLowerCase();
+                        row.style.display = (!needle || text.indexOf(needle) !== -1) ? "" : "none";
+                    });
+                });
+            }
+
 
             // Delete project handler
             if (deleteBtn) {

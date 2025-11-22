@@ -27,7 +27,7 @@ def create_default_master_version(sender, instance: AISTProject, created: bool, 
             binding = repo.get_binding()
             if binding is not None:
                 project_info = binding.get_project_info(repo)
-                default_branch = project_info.get('default_branch', 'master')
+                default_branch = project_info.get("default_branch", "master")
 
         AISTProjectVersion.objects.get_or_create(
             project=instance,
