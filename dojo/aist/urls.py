@@ -1,7 +1,7 @@
 from django.urls import path
 from django_github_app.views import AsyncWebhookView
 
-from . import ai_views, views
+from . import ai_views, export_views, views
 
 app_name = "dojo_aist"
 urlpatterns = [
@@ -26,6 +26,11 @@ urlpatterns = [
     path("pipelines/<str:pipeline_id>/logs/download/", views.pipeline_logs_download, name="pipeline_logs_download"),
     path("pipelines/<str:pipeline_id>/progress/deduplication", views.deduplication_progress_json,
          name="deduplication_progress"),
+    path(
+        "pipelines/<str:pipeline_id>/export-ai-results/",
+        export_views.export_ai_results,
+        name="export_ai_results",
+    ),
 
     path("pipeline/<str:pipeline_id>/status/stream/", views.pipeline_status_stream, name="pipeline_status_stream"),
     path("aist/default-analyzers/", views.default_analyzers, name="default_analyzers"),

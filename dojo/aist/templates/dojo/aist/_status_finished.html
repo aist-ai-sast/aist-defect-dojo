@@ -2,159 +2,372 @@
 {% load aist_extras %}
 
 <div class="alert alert-info d-flex align-items-center mb-4" role="alert">
-  <i class="fa fa-info-circle me-2" aria-hidden="true"></i>
-  <span><strong>Pipeline finished.</strong></span>
+    <i class="fa fa-info-circle me-2" aria-hidden="true"></i>
+    <span><strong>Pipeline finished.</strong></span>
 </div>
 
 <div class="card shadow-sm mb-4">
-  <div class="card-body">
+    <div class="card-body">
 
-    <form method="post" class="mb-4">
-      {% csrf_token %}
-      <button type="submit"
-              class="btn btn-outline-secondary btn-sm"
-              formaction="{% url 'dojo_aist:pipeline_set_status' pipeline.id %}">
-        <i class="fa fa-arrow-left" aria-hidden="true"></i>
-        Return to step <span class="fw-semibold">Push To AI</span>
-      </button>
-    </form>
+        <div class="row mb-4">
+            <div class="col-md-12">
 
-    <div class="aist-section">
-      <div class="fw-semibold fs-6 aist-subtitle">
-        <i class="fa fa-flask me-1"></i> Analyzers summary
-      </div>
-      {% with info=pipeline.analyzers_info %}
-        {% if info %}
-          <div class="row g-3">
-            <div class="col-auto">
-              <div class="text-muted small">Analyzers used</div>
-              <div class="fw-semibold">{{ info.total|default:0 }}</div>
-            </div>
-            <div class="col-auto">
-              <div class="text-muted small">Succeeded</div>
-              <div class="fw-semibold">{{ info.succeeded|default:0 }}</div>
-            </div>
-            <div class="col-auto">
-              <div class="text-muted small">Failed</div>
-              <div class="fw-semibold">{{ info.failed|default:0 }}</div>
-            </div>
-          </div>
-        {% else %}
-          <span class="text-muted">No analyzers recorded.</span>
-        {% endif %}
-      {% endwith %}
-    </div>
+                <div class="btn-toolbar" role="toolbar">
 
+                    <div class="btn-group me-2" role="group">
+                        <form method="post" class="form-inline" style="margin:0;">
+                            {% csrf_token %}
+                            <button type="submit"
+                                    class="btn btn-outline-secondary btn-sm"
+                                    formaction="{% url 'dojo_aist:pipeline_set_status' pipeline.id %}">
+                                <i class="fa fa-arrow-left" aria-hidden="true"></i>
+                                Return to step <span class="fw-semibold">Push To AI</span>
+                            </button>
+                        </form>
+                    </div>
 
-    <div class="aist-section">
-      <div class="fw-semibold fs-6 aist-subtitle">
-        <i class="fa fa-clock me-1"></i> Duration
-      </div>
-      <div>
-          <span class="text-muted ms-2">
-          <span id="aist-duration" data-start="{{ pipeline.started|date:'c' }}"
-                data-end="{{ pipeline.updated|date:'c' }}" class="fw-semibold"></span>
-            <span id="aist-duration-human" class="text-muted ms-2"></span>
-        </span>
-      </div>
-    </div>
-
-
-    <div class="aist-section">
-      <div class="fw-semibold fs-6 mb-3">
-        <i class="fa fa-robot me-1"></i> AI responses history
-      </div>
-
-      {% if pipeline.ai_responses.all %}
-        <div class="accordion" id="aist-ai-responses">
-          {% for r in pipeline.ai_responses.all %}
-            <div class="accordion-item mb-2">
-              <h2 class="accordion-header" id="ai-head-{{ r.id }}">
-                <button class="accordion-button collapsed" type="button"
-                        data-bs-toggle="collapse" data-toggle="collapse"
-                        data-bs-target="#ai-body-{{ r.id }}" data-target="#ai-body-{{ r.id }}"
-                        aria-expanded="false" aria-controls="ai-body-{{ r.id }}">
-                  <span class="me-2 badge bg-secondary">{{ forloop.counter }}</span>
-                  <span class="me-3">{{ r.created|date:"Y-m-d H:i:s" }}</span>
-                  <small class="text-muted">(#{{ r.id }})</small>
-                </button>
-              </h2>
-
-              <div id="ai-body-{{ r.id }}" class="accordion-collapse collapse"
-                   aria-labelledby="ai-head-{{ r.id }}"
-                   data-bs-parent="#aist-ai-responses" data-parent="#aist-ai-responses">
-                <div class="accordion-body">
-
-                    <div class="aist-ai-toolbar mb-2">
-  <button type="button"
-          class="btn btn-sm btn-outline-secondary aist-json-copy-btn"
-          data-target="{{ r.id }}">
-    <i class="fa fa-clipboard me-1"></i>Copy
-  </button>
-  <form method="post"
-        action="{% url 'dojo_aist:delete_ai_response' pipeline.id r.id %}"
-        onsubmit="return confirm('Delete this AI response?');"
-        style="display:inline-block; margin:0;">
-    {% csrf_token %}
-    <button class="btn btn-sm btn-outline-danger">
-      <i class="fa fa-trash me-1"></i>Delete
-    </button>
-  </form>
-</div>
-
-                  {# --- 1) JSON для Copy/подсветки --- #}
-{% with json_id="aist-json-raw-"|add:r.id %}
-  {{ r.payload|json_script:json_id }}
-{% endwith %}
-
-{# --- 2) Серверный pretty-print, размер = по контенту --- #}
-<pre id="aist-json-view-{{ r.id }}" class="aist-json-pre">{{ r.payload|to_pretty_json }}</pre>
-
-                  <script>
-                    (function(){
-                      var v = document.getElementById('aist-json-view-{{ r.id }}');
-                      if(!v) return;
-                      if(typeof window.jsonSyntaxHighlight === 'function'){
-                        try { v.innerHTML = window.jsonSyntaxHighlight(v.textContent); } catch(e){}
-                      }
-
-                      var btn = document.querySelector('.aist-json-copy-btn[data-target="{{ r.id }}"]');
-                      if(btn && !btn.dataset.wired){
-                        btn.addEventListener('click', async function(){
-                          try{
-                            var raw = document.getElementById('aist-json-raw-{{ r.id }}');
-                            var txt = (raw && raw.textContent || '').trim();
-                            if(!txt){ txt = v.textContent; }
-                            await navigator.clipboard.writeText(txt);
-                            this.innerHTML = '<i class="fa fa-check me-1"></i>Copied';
-                            setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard me-1"></i>Copy', 1500);
-                          }catch(_){
-                            this.innerHTML = '<i class="fa fa-exclamation-triangle me-1"></i>Error';
-                            setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard me-1"></i>Copy', 1500);
-                          }
-                        });
-                        btn.dataset.wired = '1';
-                      }
-                    })();
-                  </script>
+                    {% with responses=pipeline.ai_responses.all %}
+                        <button type="button"
+                                class="btn btn-primary btn-sm"
+                                data-bs-toggle="modal"
+                                data-toggle="modal"
+                                data-bs-target="#aist-export-modal"
+                                data-target="#aist-export-modal"
+                                {% if not responses %}disabled title="No AI responses to export"{% endif %}>
+                            <i class="fa fa-file-export me-1"></i>
+                            Export AI results
+                        </button>
+                    {% endwith %}
 
                 </div>
-              </div>
-            </div>
-          {% empty %}
-            <span class="text-muted">No AI responses yet.</span>
-          {% endfor %}
-        </div>
-      {% else %}
-        <span class="text-muted">No AI responses yet.</span>
-      {% endif %}
-    </div>
 
-  </div>
+            </div>
+        </div>
+
+            {# --- Analyzers summary --- #}
+        <div class="aist-section mb-3">
+            <div class="font-weight-bold mb-1">
+                <i class="fa fa-flask mr-1"></i> Analyzers summary
+            </div>
+
+            {% with launched=pipeline.launch_data.launched_analyzers %}
+                {% if launched %}
+                    <div class="small">
+                        <span class="text-muted">Analyzers used:</span>
+                        <strong>{{ launched|length }}</strong>
+                        <span class="text-muted">–</span>
+                        {{ launched|join:", " }}
+                    </div>
+                {% else %}
+                    <span class="text-muted small">No analyzers recorded.</span>
+                {% endif %}
+            {% endwith %}
+        </div>
+
+        <hr class="my-3">
+
+        {# --- Duration --- #}
+        <div class="aist-section mb-3">
+            <div class="font-weight-bold mb-1">
+                <i class="fa fa-clock mr-1"></i> Duration
+            </div>
+            <div class="small">
+                <span id="aist-duration"
+                      data-start="{{ pipeline.started|date:'c' }}"
+                      data-end="{{ pipeline.updated|date:'c' }}"
+                      class="font-weight-bold"></span>
+                <span id="aist-duration-human" class="text-muted ml-2"></span>
+            </div>
+        </div>
+
+        <hr class="my-3">
+
+        {# --- AI responses history --- #}
+        <div class="aist-section mb-3">
+            <div class="font-weight-bold mb-2">
+                <i class="fa fa-robot mr-1"></i> AI responses history
+            </div>
+
+            {% if pipeline.ai_responses.all %}
+                <div class="accordion" id="aist-ai-responses">
+                    {% for r in pipeline.ai_responses.all %}
+                        <div class="mb-2">
+                            <h2 class="accordion-header" id="ai-head-{{ r.id }}">
+                                <button class="btn btn-light btn-sm btn-block text-left collapsed" type="button"
+                                        data-bs-toggle="collapse" data-toggle="collapse"
+                                        data-bs-target="#ai-body-{{ r.id }}" data-target="#ai-body-{{ r.id }}"
+                                        aria-expanded="false" aria-controls="ai-body-{{ r.id }}">
+                                    <span class="badge badge-secondary mr-2">{{ forloop.counter }}</span>
+                                    <span class="mr-2">{{ r.created|date:"Y-m-d H:i:ss" }}</span>
+                                    <small class="text-muted">(#{{ r.id }})</small>
+                                </button>
+                            </h2>
+
+                            <div id="ai-body-{{ r.id }}" class="collapse"
+                                 aria-labelledby="ai-head-{{ r.id }}"
+                                 data-bs-parent="#aist-ai-responses" data-parent="#aist-ai-responses">
+                                <div class="card card-body mt-1">
+
+                                    <div class="aist-ai-toolbar mb-2">
+                                        <button type="button"
+                                                class="btn btn-sm btn-outline-secondary aist-json-copy-btn"
+                                                data-target="{{ r.id }}">
+                                            <i class="fa fa-clipboard mr-1"></i>Copy
+                                        </button>
+                                        <form method="post"
+                                              action="{% url 'dojo_aist:delete_ai_response' pipeline.id r.id %}"
+                                              onsubmit="return confirm('Delete this AI response?');"
+                                              style="display:inline-block; margin:0;">
+                                            {% csrf_token %}
+                                            <button class="btn btn-sm btn-outline-danger">
+                                                <i class="fa fa-trash mr-1"></i>Delete
+                                            </button>
+                                        </form>
+                                    </div>
+
+                                    {% with json_id="aist-json-raw-"|add:r.id %}
+                                        {{ r.payload|json_script:json_id }}
+                                    {% endwith %}
+
+                                    <pre id="aist-json-view-{{ r.id }}"
+                                         class="aist-json-pre">{{ r.payload|to_pretty_json }}</pre>
+
+                                    <script>
+                                        (function () {
+                                            var v = document.getElementById('aist-json-view-{{ r.id }}');
+                                            if (!v) return;
+                                            if (typeof window.jsonSyntaxHighlight === 'function') {
+                                                try {
+                                                    v.innerHTML = window.jsonSyntaxHighlight(v.textContent);
+                                                } catch (e) {}
+                                            }
+
+                                            var btn = document.querySelector('.aist-json-copy-btn[data-target="{{ r.id }}"]');
+                                            if (btn && !btn.dataset.wired) {
+                                                btn.addEventListener('click', async function () {
+                                                    try {
+                                                        var raw = document.getElementById('aist-json-raw-{{ r.id }}');
+                                                        var txt = (raw && raw.textContent || '').trim();
+                                                        if (!txt) {
+                                                            txt = v.textContent;
+                                                        }
+                                                        await navigator.clipboard.writeText(txt);
+                                                        this.innerHTML = '<i class="fa fa-check mr-1"></i>Copied';
+                                                        setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard mr-1"></i>Copy', 1500);
+                                                    } catch (_) {
+                                                        this.innerHTML = '<i class="fa fa-exclamation-triangle mr-1"></i>Error';
+                                                        setTimeout(() => this.innerHTML = '<i class="fa fa-clipboard mr-1"></i>Copy', 1500);
+                                                    }
+                                                });
+                                                btn.dataset.wired = '1';
+                                            }
+                                        })();
+                                    </script>
+
+                                </div>
+                            </div>
+                        </div>
+                    {% empty %}
+                        <span class="text-muted small">No AI responses yet.</span>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <span class="text-muted small">No AI responses yet.</span>
+            {% endif %}
+        </div>
+
+
+    </div>
+</div>
+
+{# --- Export AI results modal --- #}
+<div class="modal fade" id="aist-export-modal" tabindex="-1" role="dialog"
+     aria-labelledby="aist-export-modal-label" aria-hidden="true">
+    <div class="modal-dialog modal-lg" role="document">
+        <div class="modal-content">
+            <form method="post"
+                  action="{% url 'dojo_aist:export_ai_results' pipeline.id %}"
+                  target="_blank">
+                {% csrf_token %}
+
+                <div class="modal-header">
+                    <h5 class="modal-title" id="aist-export-modal-label">
+                        <i class="fa fa-file-export mr-1" aria-hidden="true"></i>
+                        Export AI results
+                    </h5>
+                    <button type="button"
+                            class="close"
+                            data-dismiss="modal"
+                            aria-label="Close">
+                        <span aria-hidden="true">&times;</span>
+                    </button>
+                </div>
+
+                <div class="modal-body">
+
+                    {# Format #}
+                    <div class="form-group">
+                        <label for="id_aist_export_format" class="control-label">
+                            Export format
+                        </label>
+                        <select id="id_aist_export_format"
+                                name="format"
+                                class="form-control">
+                            <option value="csv">CSV (UTF-8)</option>
+                            <option value="xlsx" selected>Excel (.xlsx)</option>
+                            <option value="pdf" disabled>PDF (coming soon)</option>
+                        </select>
+                    </div>
+
+                    <hr>
+
+                    {# Columns #}
+                    <div class="form-group">
+                        <label class="control-label d-block">Columns</label>
+                        <div class="row">
+                            <div class="col-sm-6">
+                                <div class="form-check">
+                                    <label class="form-check-label">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="columns" value="title" checked>
+                                        Title
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <label class="form-check-label">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="columns" value="project_version" checked>
+                                        Project version
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <label class="form-check-label">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="columns" value="cwe" checked>
+                                        CWE
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <label class="form-check-label">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="columns" value="file" checked>
+                                        File
+                                    </label>
+                                </div>
+                            </div>
+
+                            <div class="col-sm-6">
+                                <div class="form-check">
+                                    <label class="form-check-label">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="columns" value="line" checked>
+                                        Line
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <label class="form-check-label">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="columns" value="description" checked>
+                                        Description
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <label class="form-check-label">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="columns" value="code_snippet" checked>
+                                        Code snippet
+                                    </label>
+                                </div>
+                                <div class="form-check">
+                                    <label class="form-check-label">
+                                        <input class="form-check-input" type="checkbox"
+                                               name="columns" value="false_positive">
+                                        False positive flag
+                                    </label>
+                                </div>
+                            </div>
+                        </div>
+
+                        <small class="form-text text-muted">
+                            Impact score is always used for sorting (highest first) and is not shown as a column.
+                        </small>
+                    </div>
+
+                    <hr>
+
+                    {# Max findings + Export all #}
+                    <div class="form-group">
+                        <label for="id_aist_max_findings" class="control-label">
+                            Maximum findings
+                        </label>
+                        <div class="form-inline">
+                            <input type="number"
+                                   min="1"
+                                   class="form-control input-sm"
+                                   id="id_aist_max_findings"
+                                   name="max_findings"
+                                   value="100">
+
+                            <div class="form-check ml-3 mb-0">
+                                <label class="form-check-label">
+                                    <input class="form-check-input"
+                                           type="checkbox"
+                                           value="1"
+                                           id="id_aist_export_all"
+                                           name="export_all">
+                                    Export all
+                                </label>
+                            </div>
+                        </div>
+                        <small class="form-text text-muted">
+                            If "Export all" is checked, the limit is ignored.
+                        </small>
+                    </div>
+
+                    {# Ignore false positives #}
+                    <div class="form-group mb-0">
+                        <div class="form-check">
+                            <label class="form-check-label">
+                                <input class="form-check-input"
+                                       type="checkbox"
+                                       value="1"
+                                       id="id_aist_ignore_false_positives"
+                                       name="ignore_false_positives"
+                                       checked>
+                                Ignore AI-marked false positives
+                            </label>
+                        </div>
+                        <small class="form-text text-muted">
+                            When disabled, false positives are included and the "False positive" column
+                            will be added automatically.
+                        </small>
+                    </div>
+
+                </div>
+
+                <div class="modal-footer">
+                    <button type="button"
+                            class="btn btn-default"
+                            data-dismiss="modal">
+                        Cancel
+                    </button>
+                    <button type="submit"
+                            class="btn btn-primary">
+                        <i class="fa fa-download mr-1" aria-hidden="true"></i>
+                        Download
+                    </button>
+                </div>
+            </form>
+        </div>
+    </div>
 </div>
 
 <style>
-  .aist-ai-toolbar{
-    display:flex; gap:.5rem; align-items:center; justify-content:flex-end; flex-wrap:wrap;
-  }
+    .aist-ai-toolbar {
+        display: flex;
+        gap: .5rem;
+        align-items: center;
+        justify-content: flex-end;
+        flex-wrap: wrap;
+    }
 </style>
