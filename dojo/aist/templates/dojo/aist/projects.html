@@ -67,6 +67,8 @@
                         data-project-profile="{{ p.profile|default:'{}'|escapejs }}"
                         data-project-org-id="{{ p.organization_id|default_if_none:'' }}"
                         data-project-org-name="{{ p.organization.name|default_if_none:'' }}"
+                        data-project-repo-type="{{ p.repository.type|default_if_none:'' }}"
+                        data-project-repo-base-url="{{ p.repository.base_url|default_if_none:'' }}"
                         data-update-url="{% url 'dojo_aist:aist_project_update' p.id %}"
                         data-delete-url="{% url 'dojo_aist_api:project_detail' project_id=p.id %}">
                         <td>{{ p.id }}</td>
@@ -140,6 +142,8 @@
                                 data-project-profile="{{ p.profile|default:'{}'|escapejs }}"
                                 data-project-org-id="{{ p.organization_id|default_if_none:'' }}"
                                 data-project-org-name="{{ org.name|default_if_none:'' }}"
+                                data-project-repo-type="{{ p.repository.type|default_if_none:'' }}"
+                                data-project-repo-base-url="{{ p.repository.base_url|default_if_none:'' }}"
                                 data-update-url="{% url 'dojo_aist:aist_project_update' p.id %}"
                                 data-delete-url="{% url 'dojo_aist_api:project_detail' project_id=p.id %}">
                                 <td>{{ p.id }}</td>
@@ -217,6 +221,8 @@
                                 data-project-profile="{{ p.profile|default:'{}'|escapejs }}"
                                 data-project-org-id="{{ p.organization_id|default_if_none:'' }}"
                                 data-project-org-name=""
+                                data-project-repo-type="{{ p.repository.type|default_if_none:'' }}"
+                                data-project-repo-base-url="{{ p.repository.base_url|default_if_none:'' }}"
                                 data-update-url="{% url 'dojo_aist:aist_project_update' p.id %}"
                                 data-delete-url="{% url 'dojo_aist_api:project_detail' project_id=p.id %}">
                                 <td>{{ p.id }}</td>
@@ -501,6 +507,34 @@
                             </p>
                         </div>
 
+                        <div id="ap-gitlab-token-section" style="display:none;">
+                            <hr class="my-3"/>
+                            <div class="form-group">
+                                <label>GitLab base URL</label>
+                                <div class="form-control" id="ap-gitlab-base-url" readonly></div>
+                                <p class="help-block">
+                                    Token update is available for GitLab-backed projects.
+                                </p>
+                            </div>
+                            <div class="form-group">
+                                <label for="ap-gitlab-token">Update GitLab token</label>
+                                <div class="input-group">
+                                    <input type="password"
+                                           class="form-control"
+                                           id="ap-gitlab-token"
+                                           placeholder="New GitLab personal access token">
+                                    <span class="input-group-btn">
+                                        <button class="btn btn-default" type="button" id="ap-gitlab-token-toggle">
+                                            <i class="fa fa-eye"></i>
+                                        </button>
+                                    </span>
+                                </div>
+                                <p class="help-block">
+                                    Leave empty to keep the current token.
+                                </p>
+                            </div>
+                        </div>
+
                         <div class="checkbox">
                             <label>
                                 <input type="checkbox"
@@ -753,6 +787,10 @@
             var fieldCompilable = document.getElementById("ap-compilable");
             var fieldProfile = document.getElementById("ap-profile");
             var deleteBtn = document.getElementById("aist-project-delete-btn");
+            var gitlabTokenSection = document.getElementById("ap-gitlab-token-section");
+            var gitlabTokenEditField = document.getElementById("ap-gitlab-token");
+            var gitlabTokenEditToggle = document.getElementById("ap-gitlab-token-toggle");
+            var gitlabBaseUrlField = document.getElementById("ap-gitlab-base-url");
 
             // GitLab import modal elements
             var gitlabOpenBtn = document.getElementById("gitlab-import-open");
@@ -772,9 +810,11 @@
             // URLs for GitLab integration
             var gitlabListUrl = "{% url 'dojo_aist:gitlab_projects_list' %}";
             var gitlabImportUrl = "{% url 'dojo_aist_api:import_project_from_gitlab' %}";
+            var gitlabTokenUpdateUrlTemplate = "{% url 'dojo_aist_api:project_gitlab_token_update' project_id=0 %}";
 
 
             var currentRow = null;
+            var currentRepoType = "";
 
             function getCsrfToken() {
                 // Standard helper for Django CSRF token detection.
@@ -809,6 +849,8 @@
                 var langs = row.getAttribute("data-project-langs") || "";
                 var compilable = row.getAttribute("data-project-compilable") === "true";
                 var orgId = row.getAttribute("data-project-org-id") || "";
+                var repoType = row.getAttribute("data-project-repo-type") || "";
+                var repoBaseUrl = row.getAttribute("data-project-repo-base-url") || "";
 
                 var profileRaw = row.getAttribute("data-project-profile") || "";
                 var profilePretty = profileRaw;
@@ -852,6 +894,21 @@
 
                 if (fieldProfile) {
                     fieldProfile.value = profilePretty || "";
+                }
+
+                currentRepoType = repoType;
+                if (gitlabTokenSection) {
+                    if (repoType === "GITLAB") {
+                        gitlabTokenSection.style.display = "block";
+                        if (gitlabBaseUrlField) {
+                            gitlabBaseUrlField.textContent = repoBaseUrl || "n/a";
+                        }
+                        if (gitlabTokenEditField) {
+                            gitlabTokenEditField.value = "";
+                        }
+                    } else {
+                        gitlabTokenSection.style.display = "none";
+                    }
                 }
 
                 if (errorBox) {
@@ -991,6 +1048,18 @@
                 });
             }
 
+            if (gitlabTokenEditToggle && gitlabTokenEditField) {
+                gitlabTokenEditToggle.addEventListener("click", function () {
+                    if (gitlabTokenEditField.type === "password") {
+                        gitlabTokenEditField.type = "text";
+                        this.innerHTML = '<i class="fa fa-eye-slash"></i>';
+                    } else {
+                        gitlabTokenEditField.type = "password";
+                        this.innerHTML = '<i class="fa fa-eye"></i>';
+                    }
+                });
+            }
+
             if (form) {
                 form.addEventListener("submit", function (ev) {
                     ev.preventDefault();
@@ -1033,14 +1102,65 @@
 
                         applyRowUpdate(currentRow, result.data.project);
 
-                        if (window.jQuery && window.jQuery.fn.modal) {
-                            window.jQuery(modal).modal("hide");
-                        } else if (modal && modal.classList) {
-                            modal.classList.remove("in");
-                            modal.style.display = "none";
+                        var gitlabToken = gitlabTokenEditField ? (gitlabTokenEditField.value || "").trim() : "";
+                        if (!gitlabToken || currentRepoType !== "GITLAB") {
+                            if (window.jQuery && window.jQuery.fn.modal) {
+                                window.jQuery(modal).modal("hide");
+                            } else if (modal && modal.classList) {
+                                modal.classList.remove("in");
+                                modal.style.display = "none";
+                            }
+                            showGlobalAlert("Project has been updated.", "success");
+                            return;
                         }
 
-                        showGlobalAlert("Project has been updated.", "success");
+                        var tokenUrl = gitlabTokenUpdateUrlTemplate.replace("0", String(fieldId.value || ""));
+                        var tokenHeaders = {
+                            "X-Requested-With": "XMLHttpRequest",
+                            "Content-Type": "application/json"
+                        };
+                        if (csrf) {
+                            tokenHeaders["X-CSRFToken"] = csrf;
+                        }
+
+                        fetch(tokenUrl, {
+                            method: "POST",
+                            credentials: "same-origin",
+                            headers: tokenHeaders,
+                            body: JSON.stringify({gitlab_api_token: gitlabToken})
+                        }).then(function (resp) {
+                            return resp.json().then(function (data) {
+                                return {ok: resp.ok, data: data};
+                            });
+                        }).then(function (tokenResult) {
+                            if (!tokenResult.ok || !tokenResult.data || tokenResult.data.ok !== true) {
+                                var errMsg = "Failed to update GitLab token.";
+                                if (tokenResult.data && tokenResult.data.detail) {
+                                    errMsg = tokenResult.data.detail;
+                                }
+                                if (errorBox) {
+                                    errorBox.textContent = errMsg;
+                                    errorBox.style.display = "block";
+                                }
+                                return;
+                            }
+
+                            if (gitlabTokenEditField) {
+                                gitlabTokenEditField.value = "";
+                            }
+                            if (window.jQuery && window.jQuery.fn.modal) {
+                                window.jQuery(modal).modal("hide");
+                            } else if (modal && modal.classList) {
+                                modal.classList.remove("in");
+                                modal.style.display = "none";
+                            }
+                            showGlobalAlert("Project and GitLab token updated.", "success");
+                        }).catch(function () {
+                            if (errorBox) {
+                                errorBox.textContent = "Unexpected error while updating GitLab token.";
+                                errorBox.style.display = "block";
+                            }
+                        });
                     }).catch(function () {
                         if (errorBox) {
                             errorBox.textContent = "Unexpected error while saving project.";

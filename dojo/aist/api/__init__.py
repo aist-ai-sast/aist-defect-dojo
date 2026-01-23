@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from dojo.aist.api.bootstrap import _import_sast_pipeline_package  # noqa: F401
 from dojo.aist.api.files import ProjectVersionFileBlobAPI
-from dojo.aist.api.gitlab_integration import ImportProjectFromGitlabAPI
+from dojo.aist.api.gitlab_integration import ImportProjectFromGitlabAPI, ProjectGitlabTokenUpdateAPI
 from dojo.aist.api.launch_configs import (
     EmailActionCreateSerializer,
     LaunchConfigActionSerializer,
@@ -81,6 +81,7 @@ __all__ = [
     "PipelineResponseSerializer",
     "PipelineStartAPI",
     "PipelineStartRequestSerializer",
+    "ProjectGitlabTokenUpdateAPI",
     "ProjectLaunchConfigActionDetailAPI",
     "ProjectLaunchConfigActionListCreateAPI",
     "ProjectLaunchConfigDetailAPI",

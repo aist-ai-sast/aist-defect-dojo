@@ -212,14 +212,14 @@ def aist_project_list_view(request: HttpRequest) -> HttpResponse:
     # Organizations with their projects prefetched to avoid N+1 queries.
     organizations = (
         Organization.objects
-        .prefetch_related("projects__product")
+        .prefetch_related("projects__product", "projects__repository")
         .order_by("name")
     )
 
     # Projects that are not assigned to any organization -> "Others" section.
     unassigned_projects = (
         AISTProject.objects
-        .select_related("product")
+        .select_related("product", "repository")
         .filter(organization__isnull=True)
         .order_by("product__name", "id")
     )

@@ -552,6 +552,9 @@ class TestDeduplicationProgress(models.Model):
     started_at = models.DateTimeField(null=True, blank=True)
     completed_at = models.DateTimeField(null=True, blank=True)
     deduplication_complete = models.BooleanField(default=False)
+    last_progress_at = models.DateTimeField(null=True, blank=True)
+    last_reconcile_at = models.DateTimeField(null=True, blank=True)
+    reconcile_attempts = models.PositiveIntegerField(default=0)
     updated = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -573,6 +576,15 @@ class TestDeduplicationProgress(models.Model):
                 .select_for_update()
                 .get(pk=self.pk)
             )
+            now = timezone.now()
+            fields_to_update = []
+
+            if group.started_at is None:
+                group.started_at = now
+                fields_to_update.append("started_at")
+            if group.last_progress_at is None:
+                group.last_progress_at = now
+                fields_to_update.append("last_progress_at")
             # test current findings
             qs_findings = Finding.objects.filter(test_id=group.test_id)
 
@@ -594,9 +606,15 @@ class TestDeduplicationProgress(models.Model):
             if group.pending_tasks != pending:
                 group.pending_tasks = pending
                 fields_to_update.append("pending_tasks")
+                group.last_progress_at = now
+                if "last_progress_at" not in fields_to_update:
+                    fields_to_update.append("last_progress_at")
             if group.deduplication_complete != is_complete:
                 group.deduplication_complete = is_complete
                 fields_to_update.append("deduplication_complete")
+                group.last_progress_at = now
+                if "last_progress_at" not in fields_to_update:
+                    fields_to_update.append("last_progress_at")
 
             if fields_to_update:
                 group.save(update_fields=fields_to_update)
@@ -664,7 +682,7 @@ class LaunchSchedule(models.Model):
 
     launch_config = models.OneToOneField(
         "AISTProjectLaunchConfig",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         related_name="launch_schedule",
         help_text="Anchor launch config. Project is derived from launch_config.project.",
     )
@@ -759,7 +777,7 @@ class PipelineLaunchQueue(models.Model):
     )
     launch_config = models.ForeignKey(
         "AISTProjectLaunchConfig",
-        on_delete=models.PROTECT,
+        on_delete=models.CASCADE,
         null=True,
         blank=True,
         related_name="launch_queue_items",

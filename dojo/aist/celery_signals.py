@@ -105,7 +105,12 @@ def create_dedup_group_on_test_save(sender, instance, created, **kwargs):
     """
 
     def do_refresh():
-        group, _ = TestDeduplicationProgress.objects.get_or_create(test=instance)
+        group, group_created = TestDeduplicationProgress.objects.get_or_create(test=instance)
+        if group_created:
+            now = timezone.now()
+            group.started_at = now
+            group.last_progress_at = now
+            group.save(update_fields=["started_at", "last_progress_at"])
         # Always recompute pending tasks to pick up any missing or newly added findings.
         group.refresh_pending_tasks()
 

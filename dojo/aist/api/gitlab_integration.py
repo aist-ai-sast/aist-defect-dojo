@@ -37,6 +37,10 @@ class ImportGitlabResponseSerializer(serializers.Serializer):
     repo_full = serializers.CharField()
 
 
+class UpdateGitlabTokenRequestSerializer(serializers.Serializer):
+    gitlab_api_token = serializers.CharField(write_only=True, trim_whitespace=True)
+
+
 class ImportProjectFromGitlabAPI(APIView):
 
     """
@@ -144,3 +148,31 @@ class ImportProjectFromGitlabAPI(APIView):
             "repo_full": f"{owner_ns}/{repo_name}",
         })
         return Response(out.data, status=status.HTTP_201_CREATED)
+
+
+class ProjectGitlabTokenUpdateAPI(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @extend_schema(
+        request=UpdateGitlabTokenRequestSerializer,
+        responses={200: OpenApiResponse(description="Token updated")},
+        tags=["aist"],
+        summary="Update GitLab token for project",
+    )
+    def post(self, request, project_id: int, *args, **kwargs):
+        serializer = UpdateGitlabTokenRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        token = serializer.validated_data["gitlab_api_token"].strip()
+        if not token:
+            return Response({"detail": "GitLab token is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        project = get_object_or_404(AISTProject.objects.select_related("repository"), id=project_id)
+        repo = project.repository
+        if not repo or repo.type != ScmType.GITLAB:
+            return Response({"detail": "Project repository is not GitLab"}, status=status.HTTP_400_BAD_REQUEST)
+
+        binding, _created = ScmGitlabBinding.objects.get_or_create(scm=repo)
+        binding.personal_access_token = token
+        binding.save(update_fields=["personal_access_token"])
+
+        return Response({"ok": True})

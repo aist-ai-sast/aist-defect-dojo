@@ -16,6 +16,7 @@ from dojo.aist.api import (
     PipelineLaunchQueueListAPI,
     PipelineListAPI,
     PipelineStartAPI,
+    ProjectGitlabTokenUpdateAPI,
     ProjectLaunchConfigActionDetailAPI,
     ProjectLaunchConfigActionListCreateAPI,
     ProjectLaunchConfigDetailAPI,
@@ -50,6 +51,11 @@ urlpatterns = [
         name="project_version_create",
     ),
     path("import_project_from_gitlab/", ImportProjectFromGitlabAPI.as_view(), name="import_project_from_gitlab"),
+    path(
+        "projects/<int:project_id>/gitlab-token/",
+        ProjectGitlabTokenUpdateAPI.as_view(),
+        name="project_gitlab_token_update",
+    ),
     path(
         "projects/<int:project_id>/launch-configs/",
         ProjectLaunchConfigListCreateAPI.as_view(),

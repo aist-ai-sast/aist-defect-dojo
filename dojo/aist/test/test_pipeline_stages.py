@@ -85,10 +85,20 @@ class AfterUploadEnrichTests(TestCase):
 # ---- watch_deduplication ----------------------------------------------------
 
 
-def _call_watch_dedup(*, pipeline):
+def _call_watch_dedup(*, pipeline, progress_qs=None):
     with patch("dojo.aist.tasks.dedup.install_pipeline_logging", return_value=DummyLogger()) as _mock_log, \
-         patch("dojo.aist.tasks.dedup.AISTPipeline") as mock_model:
+         patch("dojo.aist.tasks.dedup.AISTPipeline") as mock_model, \
+         patch("dojo.aist.tasks.dedup.TestDeduplicationProgress") as mock_progress:
         mock_model.objects.get.return_value = pipeline
+        if progress_qs is None:
+            progress_qs = MagicMock()
+            progress_qs.filter.return_value = progress_qs
+            progress_qs.exclude.return_value = progress_qs
+            progress_qs.exists.return_value = False
+            progress_qs.values_list.return_value = []
+            progress_qs.__iter__.return_value = iter([])
+        mock_progress.objects.filter.return_value = progress_qs
+        mock_progress.objects.bulk_create.return_value = []
         _watch_deduplication.run(pipeline_id=pipeline.id, log_level="INFO")
         return pipeline
 
@@ -97,6 +107,7 @@ class WatchDeduplicationTests(TestCase):
     def test_no_tests_finishes_immediately(self):
         tests_mgr = MagicMock()
         tests_mgr.exists.return_value = False
+        tests_mgr.values_list.return_value = []
         pipeline = _mk_pipeline(status="WAITING_DEDUPLICATION_TO_FINISH", tests=tests_mgr)
 
         _call_watch_dedup(pipeline=pipeline)
@@ -108,12 +119,44 @@ class WatchDeduplicationTests(TestCase):
         tests_mgr = MagicMock()
         tests_mgr.exists.return_value = True
         tests_mgr.filter().count.return_value = 0
+        tests_mgr.values_list.return_value = [1]
         pipeline = _mk_pipeline(status="WAITING_DEDUPLICATION_TO_FINISH", tests=tests_mgr)
 
         _call_watch_dedup(pipeline=pipeline)
 
         self.assertEqual(pipeline.status, "WAITING_CONFIRMATION_TO_PUSH_TO_AI")
         pipeline.save.assert_any_call(update_fields=["status", "updated"])
+
+    def test_stale_retries_exhausted_releases_pipeline(self):
+        tests_mgr = MagicMock()
+        tests_mgr.exists.return_value = True
+        tests_mgr.filter().count.return_value = 1
+        tests_mgr.values_list.return_value = [1]
+        pipeline = _mk_pipeline(status="WAITING_DEDUPLICATION_TO_FINISH", tests=tests_mgr)
+
+        progress_qs = MagicMock()
+        mock_started = MagicMock()
+        mock_started.exists.return_value = False
+        mock_attempts = MagicMock()
+        mock_attempts.exists.return_value = True
+
+        def _filter_side_effect(*args, **kwargs):
+            if "started_at__lt" in kwargs:
+                return mock_started
+            if "reconcile_attempts__gte" in kwargs and "last_progress_at__lt" in kwargs:
+                return mock_attempts
+            return progress_qs
+
+        progress_qs.filter.side_effect = _filter_side_effect
+        progress_qs.exclude.return_value = progress_qs
+        progress_qs.exists.return_value = False
+        progress_qs.values_list.return_value = [1]
+        progress_qs.__iter__.return_value = iter([])
+        progress_qs.update = MagicMock()
+
+        _call_watch_dedup(pipeline=pipeline, progress_qs=progress_qs)
+
+        self.assertEqual(pipeline.status, "WAITING_CONFIRMATION_TO_PUSH_TO_AI")
 
 # ---- push_request_to_ai -----------------------------------------------------
 

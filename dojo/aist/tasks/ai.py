@@ -51,6 +51,7 @@ def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="
 
             if pipeline.status != AISTStatus.PUSH_TO_AI:
                 log.error("Attempt to push to AI before pipeline ready to Push it")
+                finish_pipeline(pipeline)
                 return
 
             project = pipeline.project
@@ -81,8 +82,8 @@ def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="
             log.info("Sending AI triage request: url=%s payload=%s", webhook_url, payload)
             resp = requests.post(webhook_url, data=body_bytes, headers=headers, timeout=webhook_timeout)
             resp.raise_for_status()
-        except requests.RequestException:
-            log.exception("AI triage POST failed")
+        except requests.RequestException as exc:
+            log.exception("AI triage POST failed with exception %s", exc)
             finish_pipeline(pipeline)
             return
 
@@ -104,6 +105,8 @@ def auto_push_to_ai_if_configured(pipeline_id: str):
         )
 
         if pipeline.status != AISTStatus.WAITING_CONFIRMATION_TO_PUSH_TO_AI:
+            logger.error("Attempt to collect findings for AI before pipeline ready to Push it")
+            finish_pipeline(pipeline)
             return
 
         ai = (pipeline.launch_data or {}).get("ai") or {}
@@ -131,6 +134,5 @@ def auto_push_to_ai_if_configured(pipeline_id: str):
             finish_pipeline(pipeline)
             return
 
-            set_pipeline_status(pipeline, AISTStatus.PUSH_TO_AI)
-
+    set_pipeline_status(pipeline, AISTStatus.PUSH_TO_AI)
     push_request_to_ai.delay(pipeline_id, finding_ids, {"filter": snap})

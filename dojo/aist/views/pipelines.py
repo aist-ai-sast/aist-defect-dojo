@@ -246,6 +246,6 @@ def delete_pipeline_view(request, pipeline_id: str):
     pipeline = get_object_or_404(AISTPipeline, id=pipeline_id)
     if request.method == "POST":
         pipeline.delete()
-        return redirect("dojo_aist:start_pipeline")
+        return redirect("dojo_aist:pipeline_list")
     add_breadcrumb(parent=pipeline, title="Delete pipeline", top_level=False, request=request)
     return render(request, "dojo/aist/confirm_delete.html", {"pipeline": pipeline})

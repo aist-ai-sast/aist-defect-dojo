@@ -8,7 +8,7 @@ from django.urls import reverse
 from rest_framework.test import APIClient
 
 from dojo.aist.models import AISTProject, Organization, RepositoryInfo, ScmGitlabBinding, ScmType
-from dojo.models import SLA_Configuration
+from dojo.models import Product, Product_Type, SLA_Configuration
 
 
 class GitlabIntegrationAPITests(TestCase):
@@ -27,6 +27,9 @@ class GitlabIntegrationAPITests(TestCase):
 
     def _url(self):
         return reverse("dojo_aist_api:import_project_from_gitlab")
+
+    def _token_url(self, project_id: int):
+        return reverse("dojo_aist_api:project_gitlab_token_update", kwargs={"project_id": project_id})
 
     @staticmethod
     def _resp(status_code, payload=None):
@@ -137,6 +140,102 @@ class GitlabIntegrationAPITests(TestCase):
                 "gitlab_api_token": "",
                 "base_url": "https://gitlab.example.com",
             },
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 400)
+
+    def test_update_gitlab_token_happy_path(self):
+        product_type = Product_Type.objects.create(name="Gitlab Imported")
+        product = Product.objects.create(
+            name="repo",
+            description="desc",
+            prod_type=product_type,
+            sla_configuration_id=1,
+        )
+        repo = RepositoryInfo.objects.create(
+            type=ScmType.GITLAB,
+            repo_owner="group",
+            repo_name="repo",
+            base_url="https://gitlab.example.com",
+        )
+        binding = ScmGitlabBinding.objects.create(scm=repo, personal_access_token="old")  # noqa: S106
+        project = AISTProject.objects.create(
+            product=product,
+            supported_languages=[],
+            script_path="input_projects/default_imported_project_no_built.sh",
+            compilable=False,
+            profile={},
+            repository=repo,
+        )
+
+        resp = self.client.post(
+            self._token_url(project.id),
+            data={"gitlab_api_token": "new-token"},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 200)
+        binding.refresh_from_db()
+        self.assertEqual(binding.personal_access_token, "new-token")
+
+    def test_update_gitlab_token_requires_gitlab_repo(self):
+        product_type = Product_Type.objects.create(name="Other")
+        product = Product.objects.create(
+            name="repo",
+            description="desc",
+            prod_type=product_type,
+            sla_configuration_id=1,
+        )
+        repo = RepositoryInfo.objects.create(
+            type=ScmType.GITHUB,
+            repo_owner="group",
+            repo_name="repo",
+            base_url="https://github.com",
+        )
+        project = AISTProject.objects.create(
+            product=product,
+            supported_languages=[],
+            script_path="input_projects/default_imported_project_no_built.sh",
+            compilable=False,
+            profile={},
+            repository=repo,
+        )
+
+        resp = self.client.post(
+            self._token_url(project.id),
+            data={"gitlab_api_token": "new-token"},
+            format="json",
+        )
+
+        self.assertEqual(resp.status_code, 400)
+
+    def test_update_gitlab_token_requires_token(self):
+        product_type = Product_Type.objects.create(name="Gitlab Imported")
+        product = Product.objects.create(
+            name="repo",
+            description="desc",
+            prod_type=product_type,
+            sla_configuration_id=1,
+        )
+        repo = RepositoryInfo.objects.create(
+            type=ScmType.GITLAB,
+            repo_owner="group",
+            repo_name="repo",
+            base_url="https://gitlab.example.com",
+        )
+        project = AISTProject.objects.create(
+            product=product,
+            supported_languages=[],
+            script_path="input_projects/default_imported_project_no_built.sh",
+            compilable=False,
+            profile={},
+            repository=repo,
+        )
+
+        resp = self.client.post(
+            self._token_url(project.id),
+            data={"gitlab_api_token": ""},
             format="json",
         )
 

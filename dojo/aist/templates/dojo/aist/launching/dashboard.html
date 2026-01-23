@@ -1202,6 +1202,7 @@
             // ---------------------------
             var launchConfigsById = {};
             var collapsedLaunchConfigGroups = {};
+            var expandedLaunchConfigIds = {};
             var launchConfigsTable = $("#tbl-launch-configs").DataTable({
                 paging: true,
                 searching: true,
@@ -1293,6 +1294,12 @@
             }
 
             function loadLaunchConfigs() {
+                expandedLaunchConfigIds = {};
+                $("#tbl-launch-configs tbody tr.shown span.details-control").each(function () {
+                    var id = $(this).data("id");
+                    if (id != null) expandedLaunchConfigIds[String(id)] = true;
+                });
+
                 var orgId = $("#filter-lc-org").val();
                 var projectId = $("#filter-lc-project").val();
                 var isDefault = $("#filter-lc-default").val();
@@ -1338,6 +1345,35 @@
                         });
 
                         launchConfigsTable.draw();
+
+                        Object.keys(expandedLaunchConfigIds).forEach(function (id) {
+                            var item = launchConfigsById[String(id)];
+                            if (!item) return;
+                            var group = item.project_name || (item.project ? String(item.project) : "");
+                            if (item.organization_name) {
+                                group += " — " + item.organization_name;
+                            }
+                            if (item.project) {
+                                group += " (#" + item.project + ")";
+                            }
+                            if (group) {
+                                collapsedLaunchConfigGroups[group] = false;
+                            }
+                        });
+                        launchConfigsTable.draw(false);
+
+                        $("#tbl-launch-configs tbody span.details-control").each(function () {
+                            var $ctrl = $(this);
+                            var id = $ctrl.data("id");
+                            if (!expandedLaunchConfigIds[String(id)]) return;
+                            var $row = $ctrl.closest("tr");
+                            var row = launchConfigsTable.row($row);
+                            if (row.child && row.child.isShown()) return;
+                            var item = launchConfigsById[String(id)];
+                            row.child(formatLaunchConfigDetails(item || {})).show();
+                            $row.addClass("shown");
+                            $ctrl.text("–");
+                        });
                     })
                     .catch(function (err) {
                         console.error("Failed to load launch configs", err);
@@ -1355,10 +1391,13 @@
                     row.child.hide();
                     $row.removeClass("shown");
                     $row.find("span.details-control").text("+");
+                    var closedId = $row.find("span.details-control").data("id");
+                    if (closedId != null) delete expandedLaunchConfigIds[String(closedId)];
                     return;
                 }
 
                 var cfgId = $row.find("span.details-control").data("id");
+                if (cfgId != null) expandedLaunchConfigIds[String(cfgId)] = true;
                 var item = launchConfigsById[String(cfgId)];
                 row.child(formatLaunchConfigDetails(item || {})).show();
                 $row.addClass("shown");

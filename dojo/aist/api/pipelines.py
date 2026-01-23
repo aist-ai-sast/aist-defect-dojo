@@ -50,8 +50,8 @@ class PipelineStartAPI(APIView):
                     "limit": 50,
                     "project_version_id": 123,
                     "ai_filter": {"severity": [
-                        {"comparison": "EQUALS", "value": "HIGH"},
-                        {"comparison": "EQUALS", "value": "CRITICAL"},
+                        {"comparison": "EQUALS", "value": "High"},
+                        {"comparison": "EQUALS", "value": "Critical"},
                     ]},
                 },
                 request_only=True,

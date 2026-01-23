@@ -99,6 +99,7 @@
             <th style="width: 14%;">Updated</th>
             <th style="width: 8%;">Duration</th>
             <th style="width: 8%;">Status</th>
+            <th style="width: 6%;">Actions</th>
           </tr>
         </thead>
         <tbody>
@@ -139,10 +140,16 @@
                   <span class="badge bg-secondary">{{ r.status }}</span>
                 {% endif %}
               </td>
+              <td>
+                <a class="btn btn-link text-danger btn-sm"
+                   href="{% url 'dojo_aist:pipeline_delete' r.id %}">
+                  <i class="fa fa-trash" aria-hidden="true"></i>
+                </a>
+              </td>
             </tr>
           {% empty %}
             <tr>
-              <td colspan="7" class="text-muted text-center py-4">
+              <td colspan="8" class="text-muted text-center py-4">
                 No pipelines found.
               </td>
             </tr>
