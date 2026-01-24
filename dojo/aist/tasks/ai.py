@@ -60,7 +60,6 @@ def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="
 
             launch_data = pipeline.launch_data or {}
             languages = _csv(launch_data.get("languages") or [])
-            tools = _csv(filters["analyzers"] or [])
             callback_url = build_callback_url(pipeline_id)
 
             payload: dict[str, Any] = {
@@ -69,7 +68,6 @@ def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="
                     "description": getattr(project, "description", "") or "",
                     "languages": languages,
                     "cwe": getattr(filters, "cwe", "") or "",
-                    "tools": tools,
                     "findings": finding_ids,
                 },
                 "pipeline_id": str(pipeline.id),
@@ -82,7 +80,7 @@ def push_request_to_ai(self, pipeline_id: str, finding_ids, filters, log_level="
             log.info("Sending AI triage request: url=%s payload=%s", webhook_url, payload)
             resp = requests.post(webhook_url, data=body_bytes, headers=headers, timeout=webhook_timeout)
             resp.raise_for_status()
-        except requests.RequestException as exc:
+        except Exception as exc:
             log.error("AI triage POST exception: %s", exc)
             finish_pipeline(pipeline)
             return

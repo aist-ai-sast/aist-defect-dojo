@@ -7,6 +7,8 @@ services:
       USE_TLS: 'true'
 
   uwsgi:
+    #TODO: need for logs, fixme in future
+    user: 0:0
     environment:
       FIELD_ENCRYPTION_KEY: "${FIELD_ENCRYPTION_KEY:-}"
       DD_SESSION_COOKIE_SECURE: 'True'
@@ -43,6 +45,7 @@ services:
       DD_CELERY_WORKER_AUTOSCALE_MIN: 2
       DD_CELERY_WORKER_PREFETCH_MULTIPLIER: 1
       DD_CELERY_LOG_LEVEL: INFO
+    # Required for docker socket to work properly
     user: 0:0
     volumes:
       - type: bind
